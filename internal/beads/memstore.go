@@ -235,6 +235,9 @@ func (m *MemStore) applyUpdateLocked(i int, opts UpdateOpts) {
 	if opts.Status != nil {
 		setBeadStatus(&m.beads[i], *opts.Status)
 	}
+	if oldStatus == "closed" && m.beads[i].Status != "closed" {
+		dropCloseReasonMetadata(&m.beads[i])
+	}
 	if opts.Description != nil {
 		m.beads[i].Description = *opts.Description
 	}

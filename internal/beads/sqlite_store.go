@@ -1177,6 +1177,9 @@ func applySQLiteUpdateOpts(b Bead, opts UpdateOpts) Bead {
 	if opts.Status != nil {
 		setBeadStatus(&b, *opts.Status)
 	}
+	if wasClosed && b.Status != "closed" {
+		dropCloseReasonMetadata(&b)
+	}
 	if opts.Type != nil {
 		b.Type = *opts.Type
 	}
