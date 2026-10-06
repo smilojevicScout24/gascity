@@ -12,6 +12,7 @@ go_library(
     srcs = [
         "atomic_close_conformance.go",
         "close_notification_conformance.go",
+        "conditional_labels_conformance.go",
         "conditional_writer_conformance.go",
         "conformance.go",
         "conformance_skips.go",
