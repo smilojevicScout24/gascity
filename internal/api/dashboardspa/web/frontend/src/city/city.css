@@ -78,24 +78,16 @@
 .city-face {
   animation: city-face 48s steps(1) infinite;
 }
-/* The two walk frames share one stance, so the step comes from a waddle:
-   rock onto each foot with a small lift, in time with the frame swap. */
+/* A small lift on each footfall, in time with the two-frame swap. */
 .city-gait {
-  animation: city-gait 700ms ease-in-out infinite;
+  animation: city-gait 350ms ease-in-out infinite alternate;
 }
 @keyframes city-gait {
-  0%,
-  100% {
-    transform: rotate(-4deg);
+  from {
+    transform: translateY(0);
   }
-  25% {
-    transform: translateY(-3px);
-  }
-  50% {
-    transform: rotate(4deg);
-  }
-  75% {
-    transform: translateY(-3px);
+  to {
+    transform: translateY(-2px);
   }
 }
 .city-walk-a {
