@@ -442,7 +442,7 @@ function Deacon({
         />
         <g className={walking ? 'city-face' : undefined} opacity={actor.asleep ? 0.8 : 1}>
           {walking ? (
-            <>
+            <g className="city-gait">
               <image
                 className="city-walk-a"
                 href={spriteUrl('deacon-walk-1')}
@@ -467,7 +467,7 @@ function Deacon({
                 width={size}
                 height={size}
               />
-            </>
+            </g>
           ) : (
             <image
               href={spriteUrl('deacon-idle')}

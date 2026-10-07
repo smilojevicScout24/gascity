@@ -89,6 +89,7 @@ export function CityPage() {
   }, SESSION_POLL_MS);
 
   const [selected, setSelected] = useState<CitySelection | null>(null);
+  const lastSeenModels = useLastSeenModels(model.actors);
   const error = sessions.error ?? rigs.error ?? beads.error;
 
   return (
@@ -130,7 +131,7 @@ export function CityPage() {
           <Legend />
         </div>
         <aside className="space-y-8 min-w-0">
-          <Detail model={model} selected={selected} now={now} />
+          <Detail model={model} selected={selected} now={now} lastSeenModels={lastSeenModels} />
           <Feed items={feed} />
           <Roster model={model} onSelect={setSelected} />
         </aside>
@@ -346,10 +347,12 @@ function Detail({
   model,
   selected,
   now,
+  lastSeenModels,
 }: {
   model: CityModel;
   selected: CitySelection | null;
   now: number;
+  lastSeenModels: ReadonlyMap<string, string>;
 }) {
   const actor =
     selected?.kind === 'actor'
@@ -361,10 +364,10 @@ function Detail({
   const rows: Array<[string, string]> = actor
     ? [
         ['template', actor.template],
-        ['session', actor.id],
+        ['session', actor.id.startsWith('agent:') ? 'not running' : actor.id],
         ['state', actor.stalled ? `${actor.state} · stalled` : actor.state],
         ['activity', statusLine(actor)],
-        ['model', actor.model ?? '·'],
+        ['model', modelLine(actor, lastSeenModels)],
         ['context', actor.contextPct === undefined ? '·' : `${Math.round(actor.contextPct)}%`],
         ['last active', actor.lastActive ? formatRelative(actor.lastActive, now) : '·'],
         [
@@ -498,6 +501,59 @@ function Roster({ model, onSelect }: { model: CityModel; onSelect: (s: CitySelec
       </table>
     </section>
   );
+}
+
+const LAST_SEEN_MODELS_KEY = 'gc-city:last-seen-models';
+
+/**
+ * The supervisor reports an agent's model only while it runs. Remember the
+ * last model seen per agent so a sleeping polecat or dog can still say what
+ * it ran on; the value is labelled "last seen" wherever it is shown.
+ */
+function useLastSeenModels(actors: ReadonlyArray<CityActor>): ReadonlyMap<string, string> {
+  const [seen, setSeen] = useState<Map<string, string>>(() => readLastSeenModels());
+  useEffect(() => {
+    const next = new Map(seen);
+    let changed = false;
+    for (const a of actors) {
+      const key = a.alias ?? a.label;
+      if (a.model && next.get(key) !== a.model) {
+        next.set(key, a.model);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    setSeen(next);
+    try {
+      window.localStorage.setItem(LAST_SEEN_MODELS_KEY, JSON.stringify([...next]));
+    } catch {
+      // Storage full or disabled: the in-memory map still covers this visit.
+    }
+  }, [actors, seen]);
+  return seen;
+}
+
+function readLastSeenModels(): Map<string, string> {
+  try {
+    const raw = window.localStorage.getItem(LAST_SEEN_MODELS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return new Map();
+    return new Map(
+      parsed.filter(
+        (e): e is [string, string] =>
+          Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string',
+      ),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+function modelLine(actor: CityActor, lastSeen: ReadonlyMap<string, string>): string {
+  if (actor.model) return actor.model;
+  const remembered = lastSeen.get(actor.alias ?? actor.label);
+  if (remembered) return `${remembered} (last seen)`;
+  return actor.asleep ? 'not reported while stopped' : '·';
 }
 
 function findBead(model: CityModel, id: string): CityBead | undefined {

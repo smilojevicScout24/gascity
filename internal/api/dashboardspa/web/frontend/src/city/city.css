@@ -78,6 +78,26 @@
 .city-face {
   animation: city-face 48s steps(1) infinite;
 }
+/* The two walk frames share one stance, so the step comes from a waddle:
+   rock onto each foot with a small lift, in time with the frame swap. */
+.city-gait {
+  animation: city-gait 700ms ease-in-out infinite;
+}
+@keyframes city-gait {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  25% {
+    transform: translateY(-3px);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+  75% {
+    transform: translateY(-3px);
+  }
+}
 .city-walk-a {
   animation: city-walk 700ms steps(1) infinite;
 }
@@ -148,6 +168,7 @@
   }
   .city-patrol,
   .city-face,
+  .city-gait,
   .city-tooling .city-bob,
   .city-spark,
   .city-scan {
