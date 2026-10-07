@@ -1,13 +1,22 @@
-// City view model: projects supervisor sessions, rigs and beads onto the
-// town map. Pure functions only, so the derivation is unit-testable and the
-// SVG layer stays a dumb renderer.
+// City view model: projects supervisor sessions, agents, rigs and beads onto
+// the town map. Pure functions only, so the derivation is unit-testable and
+// the SVG layer stays a dumb renderer.
 //
 // Role detection is template-driven: `gastown.polecat`, `rig/gastown.witness`
 // and friends map to the Gastown cast; anything else renders as a plain
 // "visitor" so cities running other packs still get a usable map.
+//
+// Live sessions only exist while an agent runs. Pool members that are stopped
+// (named polecats, dogs) come from the agent list instead, so an idle rig
+// still shows its crew asleep at their benches.
 
 import { parseAssignee } from 'gas-city-dashboard-shared';
-import type { SessionResponse, Bead, RigResponse } from 'gas-city-dashboard-shared/gc-supervisor';
+import type {
+  AgentResponse,
+  Bead,
+  RigResponse,
+  SessionResponse,
+} from 'gas-city-dashboard-shared/gc-supervisor';
 
 export type CityRole =
   | 'mayor'
@@ -34,6 +43,8 @@ export interface CityActor {
   id: string;
   role: CityRole;
   label: string;
+  /** Full agent name (`rig/gastown.furiosa`); bead assignees use this form. */
+  alias?: string;
   template: string;
   rig?: string;
   state: string;
@@ -77,6 +88,8 @@ export interface CityModel {
 
 export interface CityInputs {
   sessions: ReadonlyArray<SessionResponse>;
+  /** Configured agents; supplies activity for live sessions and the stopped pool members. */
+  agents?: ReadonlyArray<AgentResponse>;
   rigs: ReadonlyArray<RigResponse>;
   /** Open + in-progress beads (any rig). */
   beads: ReadonlyArray<Bead>;
@@ -101,6 +114,14 @@ const ROLES: ReadonlySet<CityRole> = new Set([
   'refinery',
   'polecat',
 ]);
+const SINGLETON_ROLES: ReadonlySet<CityRole> = new Set([
+  'mayor',
+  'deacon',
+  'boot',
+  'witness',
+  'refinery',
+]);
+const ASLEEP_STATES: ReadonlySet<string> = new Set(['asleep', 'suspended', 'stopped']);
 
 export function roleOf(template: string): CityRole {
   const base = template.slice(template.lastIndexOf('/') + 1);
@@ -108,27 +129,39 @@ export function roleOf(template: string): CityRole {
   return ROLES.has(leaf as CityRole) ? (leaf as CityRole) : 'visitor';
 }
 
+/**
+ * Real work, as opposed to the bookkeeping beads formulas and patrols create:
+ * molecules, their `-mol-` step beads and ephemeral `-wisp-` beads.
+ */
+export function isWorkBead(bead: Bead): boolean {
+  return (
+    bead.ephemeral !== true && bead.issue_type !== 'molecule' && !/-(?:mol|wisp)-/.test(bead.id)
+  );
+}
+
 export function deriveCity(input: CityInputs): CityModel {
   const live = input.sessions.filter((s) => s.state !== 'closed');
-  const beadsById = new Map<string, Bead>();
-  for (const bead of input.beads) beadsById.set(bead.id, bead);
-  const beadForSession = indexInProgressBySession(input.beads);
+  const agentsByName = new Map((input.agents ?? []).map((a) => [a.name, a]));
+  const beads = indexBeads(input.beads);
 
   const actors = live.map((s) => {
-    const actor = toActor(s, beadsById, beadForSession, input.now);
+    const actor = toActor(s, agentsByName.get(s.alias ?? ''), beads, input.now);
     const rig = resolveRigName(s.rig, input.rigs);
     if (rig !== undefined) actor.rig = rig;
     return actor;
   });
+  actors.push(...stoppedPoolMembers(input.agents ?? [], live, input.rigs));
+
   const byRole = (role: CityRole) => actors.filter((a) => a.role === role);
-  const singleton = (role: CityRole) => newestFirst(byRole(role))[0];
+  const singleton = (role: CityRole) =>
+    newestFirst(byRole(role).filter((a) => !a.asleep))[0] ?? byRole(role)[0];
 
   const rigNames = new Set(input.rigs.map((r) => r.name));
+  const rigOf = (b: Bead) => input.beadRigs?.get(b.id) ?? beadRig(b, input.rigs);
   const rigs: CityRig[] = input.rigs.map((rig) => {
     const inRig = (a: CityActor) => a.rig === rig.name;
     const refinery = newestFirst(byRole('refinery').filter(inRig))[0];
-    const rigOf = (b: Bead) => input.beadRigs?.get(b.id) ?? beadRig(b, input.rigs);
-    const rigBeads = input.beads.filter((b) => rigOf(b) === rig.name);
+    const rigBeads = input.beads.filter((b) => rigOf(b) === rig.name && isWorkBead(b));
     const ready = rigBeads.filter(isReady).map((b) => toCityBead(b, rig.name));
     const mergeQueue = refinery
       ? rigBeads
@@ -142,7 +175,7 @@ export function deriveCity(input: CityInputs): CityModel {
       readyTotal: ready.length,
       polecats: byRole('polecat')
         .filter(inRig)
-        .sort((a, b) => a.id.localeCompare(b.id)),
+        .sort((a, b) => a.label.localeCompare(b.label)),
       mergeQueue,
       mergedToday: countMergedToday(input.closedBeads ?? [], rig.name, rigOf, input.now),
     };
@@ -162,13 +195,13 @@ export function deriveCity(input: CityInputs): CityModel {
   );
 
   const model: CityModel = {
-    dogs: byRole('dog').sort((a, b) => a.id.localeCompare(b.id)),
+    dogs: byRole('dog').sort((a, b) => a.label.localeCompare(b.label)),
     visitors: [...byRole('visitor'), ...orphans],
     rigs,
     actors,
     counts: {
       awake: actors.filter((a) => !a.asleep).length,
-      inFlight: input.beads.filter((b) => b.status === 'in_progress').length,
+      inFlight: input.beads.filter((b) => b.status === 'in_progress' && isWorkBead(b)).length,
       mergeQueue: rigs.reduce((n, r) => n + r.mergeQueue.length, 0),
       mergedToday: rigs.reduce((n, r) => n + r.mergedToday, 0),
     },
@@ -182,46 +215,105 @@ export function deriveCity(input: CityInputs): CityModel {
   return model;
 }
 
+interface BeadIndex {
+  byId: ReadonlyMap<string, Bead>;
+  /** In-progress beads keyed by raw assignee and by any embedded session id. */
+  byAssignee: ReadonlyMap<string, Bead>;
+}
+
+function indexBeads(beads: ReadonlyArray<Bead>): BeadIndex {
+  const byId = new Map<string, Bead>();
+  const byAssignee = new Map<string, Bead>();
+  for (const bead of beads) {
+    byId.set(bead.id, bead);
+    if (bead.status !== 'in_progress' || !bead.assignee || !isWorkBead(bead)) continue;
+    if (!byAssignee.has(bead.assignee)) byAssignee.set(bead.assignee, bead);
+    const { sessionId } = parseAssignee(bead.assignee);
+    if (sessionId && !byAssignee.has(sessionId)) byAssignee.set(sessionId, bead);
+  }
+  return { byId, byAssignee };
+}
+
 function toActor(
   s: SessionResponse,
-  beadsById: ReadonlyMap<string, Bead>,
-  beadForSession: ReadonlyMap<string, Bead>,
+  agent: AgentResponse | undefined,
+  beads: BeadIndex,
   now: number,
 ): CityActor {
   const role = roleOf(s.template);
-  const asleep = s.state === 'asleep' || s.state === 'suspended';
+  const asleep = ASLEEP_STATES.has(s.state);
+  const activity = s.activity ?? agent?.activity;
+  const activeBead = s.active_bead ?? agent?.active_bead;
   const raw =
-    (s.active_bead ? beadsById.get(s.active_bead) : undefined) ?? beadForSession.get(s.id);
+    (activeBead ? beads.byId.get(activeBead) : undefined) ??
+    (s.alias ? beads.byAssignee.get(s.alias) : undefined) ??
+    beads.byAssignee.get(s.id);
   const bead = raw
     ? toCityBead(raw)
-    : s.active_bead
-      ? { id: s.active_bead, title: '', status: 'in_progress', type: 'task' }
+    : activeBead
+      ? { id: activeBead, title: '', status: 'in_progress', type: 'task' }
       : undefined;
   const lastActiveMs = s.last_active ? Date.parse(s.last_active) : Number.NaN;
   const quiet = Number.isFinite(lastActiveMs) ? Math.floor((now - lastActiveMs) / 60_000) : 0;
   const busyAndQuiet =
-    !asleep && bead !== undefined && s.activity === 'idle' && quiet >= STALL_AFTER_MINUTES;
+    !asleep && bead !== undefined && activity === 'idle' && quiet >= STALL_AFTER_MINUTES;
   const stalled = s.state === 'failed' || busyAndQuiet;
+  const label = actorLabel(s.alias ?? s.display_name, role, s.session_name ?? s.id);
 
   const actor: CityActor = {
     id: s.id,
     role,
-    label: actorLabel(s, role),
+    label,
     template: s.template,
     state: s.state,
     asleep,
     stalled,
-    pose: polecatPose(asleep, stalled, s.activity, bead !== undefined),
-    variant: variantOf(s.id),
+    pose: polecatPose(asleep, stalled, activity, bead !== undefined),
+    variant: variantOf(label),
   };
+  if (s.alias !== undefined) actor.alias = s.alias;
   if (s.rig !== undefined) actor.rig = s.rig;
-  if (s.activity !== undefined) actor.activity = s.activity;
-  if (s.model !== undefined) actor.model = s.model;
-  if (s.context_pct !== undefined) actor.contextPct = s.context_pct;
+  if (activity !== undefined) actor.activity = activity;
+  const model = s.model ?? agent?.model;
+  if (model !== undefined) actor.model = model;
+  const ctx = s.context_pct ?? agent?.context_pct;
+  if (ctx !== undefined) actor.contextPct = ctx;
   if (s.last_active !== undefined) actor.lastActive = s.last_active;
   if (bead) actor.bead = bead;
   if (busyAndQuiet) actor.quietMinutes = quiet;
   return actor;
+}
+
+/** Stopped polecats and dogs from the agent list, drawn asleep at their bench or kennel. */
+function stoppedPoolMembers(
+  agents: ReadonlyArray<AgentResponse>,
+  live: ReadonlyArray<SessionResponse>,
+  rigs: ReadonlyArray<RigResponse>,
+): CityActor[] {
+  const liveNames = new Set(live.map((s) => s.alias).filter((a): a is string => a !== undefined));
+  return agents
+    .filter((a) => !a.running && !liveNames.has(a.name))
+    .flatMap((a) => {
+      const role = roleOf(a.pool ?? a.name);
+      if (role !== 'polecat' && role !== 'dog') return [];
+      const label = actorLabel(a.name, role, a.name);
+      const actor: CityActor = {
+        id: `agent:${a.name}`,
+        role,
+        label,
+        alias: a.name,
+        template: a.pool ?? a.name,
+        state: a.state,
+        asleep: true,
+        stalled: false,
+        pose: 'sleep',
+        variant: variantOf(label),
+      };
+      const rig = resolveRigName(a.rig, rigs);
+      if (rig !== undefined) actor.rig = rig;
+      if (a.model !== undefined) actor.model = a.model;
+      return [actor];
+    });
 }
 
 export function polecatPose(
@@ -239,27 +331,18 @@ export function polecatPose(
   return hasBead ? 'tool' : 'idle';
 }
 
-const SINGLETON_ROLES: ReadonlySet<CityRole> = new Set([
-  'mayor',
-  'deacon',
-  'boot',
-  'witness',
-  'refinery',
-]);
-
-function actorLabel(s: SessionResponse, role: CityRole): string {
-  const named = s.alias ?? s.display_name;
+function actorLabel(named: string | undefined, role: CityRole, fallback: string): string {
   // One-of-a-kind roles read better by role than by a raw session name.
-  const raw = named ?? (SINGLETON_ROLES.has(role) ? role : (s.session_name ?? s.id));
-  // Aliases are often rig-qualified (`rig/gastown.witness`); the rig is drawn
-  // by the district, so keep only the leaf.
+  const raw = named ?? (SINGLETON_ROLES.has(role) ? role : fallback);
+  // Names are often rig- and pack-qualified (`rig/gastown.witness`); the rig
+  // is drawn by the district, so keep only the leaf.
   const leaf = raw.slice(raw.lastIndexOf('/') + 1);
   return leaf.startsWith('gastown.') ? leaf.slice('gastown.'.length) : leaf;
 }
 
-function variantOf(id: string): 0 | 1 | 2 {
+function variantOf(key: string): 0 | 1 | 2 {
   let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   return (h % 3) as 0 | 1 | 2;
 }
 
@@ -267,28 +350,20 @@ function newestFirst(list: CityActor[]): CityActor[] {
   return [...list].sort((a, b) => (b.lastActive ?? '').localeCompare(a.lastActive ?? ''));
 }
 
-function indexInProgressBySession(beads: ReadonlyArray<Bead>): Map<string, Bead> {
-  const index = new Map<string, Bead>();
-  for (const bead of beads) {
-    if (bead.status !== 'in_progress' || !bead.assignee) continue;
-    const { sessionId } = parseAssignee(bead.assignee);
-    if (sessionId && !index.has(sessionId)) index.set(sessionId, bead);
-  }
-  return index;
-}
-
 function assignedTo(bead: Bead, actor: CityActor): boolean {
-  if (!bead.assignee) return false;
-  const { sessionId } = parseAssignee(bead.assignee);
-  return (
-    sessionId === actor.id ||
-    bead.assignee === actor.label ||
-    bead.assignee.endsWith(`/${actor.label}`)
-  );
+  const assignee = bead.assignee;
+  if (!assignee) return false;
+  if (assignee === actor.alias || assignee === actor.id) return true;
+  return parseAssignee(assignee).sessionId === actor.id || assignee.endsWith(`-${actor.id}`);
 }
 
 function isReady(bead: Bead): boolean {
-  return bead.status === 'open' && !bead.assignee && bead.is_blocked !== true;
+  return (
+    bead.status === 'open' &&
+    !bead.assignee &&
+    bead.is_blocked !== true &&
+    bead.issue_type !== 'epic'
+  );
 }
 
 function toCityBead(b: Bead, rig?: string): CityBead {
@@ -327,7 +402,7 @@ function countMergedToday(
   midnight.setHours(0, 0, 0, 0);
   const since = midnight.getTime();
   return closed.filter((b) => {
-    if (b.status !== 'closed' || rigOf(b) !== rig) return false;
+    if (b.status !== 'closed' || rigOf(b) !== rig || !isWorkBead(b)) return false;
     const at = Date.parse(b.updated_at ?? b.created_at);
     return Number.isFinite(at) && at >= since;
   }).length;

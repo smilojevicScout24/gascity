@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { SupervisorAgent } from '../supervisor/agentReads';
 import type { SupervisorBead } from '../supervisor/beadReads';
 import type { SupervisorRig } from '../supervisor/rigReads';
 import type { SupervisorSession } from '../supervisor/sessionReads';
@@ -6,6 +7,7 @@ import { layoutCity } from './layout';
 import {
   beadRig,
   deriveCity,
+  isWorkBead,
   polecatPose,
   resolveRigName,
   roleOf,
@@ -307,5 +309,142 @@ describe('sprites', () => {
     ]) {
       expect(spriteUrl(name), name).not.toBe('');
     }
+  });
+});
+
+describe('live-city shapes (gc 1.4)', () => {
+  function agent(partial: Partial<SupervisorAgent> & { name: string }): SupervisorAgent {
+    return {
+      available: true,
+      pack_derived: true,
+      running: false,
+      suspended: false,
+      state: 'stopped',
+      ...partial,
+    } as SupervisorAgent;
+  }
+
+  it('shows stopped pool polecats and dogs from the agent list asleep', () => {
+    const model = deriveCity({
+      sessions: [],
+      agents: [
+        agent({
+          name: 'is24-luxury-portal/gastown.furiosa',
+          rig: 'is24-luxury-portal',
+          pool: 'is24-luxury-portal/gastown.polecat',
+        }),
+        agent({ name: 'gastown.dog-1', pool: 'gastown.dog' }),
+        agent({
+          name: 'is24-luxury-portal/sol-pre-push-review.sol-reviewer',
+          rig: 'is24-luxury-portal',
+        }),
+      ],
+      rigs: RIGS,
+      beads: [],
+      now: NOW,
+    });
+    const [p] = model.rigs[0]!.polecats;
+    expect(p?.label).toBe('furiosa');
+    expect(p?.asleep).toBe(true);
+    expect(p?.pose).toBe('sleep');
+    expect(model.dogs.map((d) => d.label)).toEqual(['dog-1']);
+    expect(model.visitors).toHaveLength(0);
+    expect(model.counts.awake).toBe(0);
+  });
+
+  it('does not duplicate a pool member that has a live session', () => {
+    const model = deriveCity({
+      sessions: [
+        session({
+          id: 'ga-x1',
+          template: 'is24-luxury-portal/gastown.polecat',
+          alias: 'is24-luxury-portal/gastown.furiosa',
+          rig: 'is24-luxury-portal',
+        }),
+      ],
+      agents: [
+        agent({
+          name: 'is24-luxury-portal/gastown.furiosa',
+          rig: 'is24-luxury-portal',
+          pool: 'is24-luxury-portal/gastown.polecat',
+          running: true,
+          state: 'active',
+          activity: 'thinking',
+        }),
+      ],
+      rigs: RIGS,
+      beads: [],
+      now: NOW,
+    });
+    const polecats = model.rigs[0]!.polecats;
+    expect(polecats).toHaveLength(1);
+    expect(polecats[0]!.label).toBe('furiosa');
+    expect(polecats[0]!.pose).toBe('think');
+  });
+
+  it('takes activity and active bead from the agent when the session lacks them', () => {
+    const model = deriveCity({
+      sessions: [session({ id: 'ga-k9r', template: 'gastown.mayor', alias: 'gastown.mayor' })],
+      agents: [
+        agent({
+          name: 'gastown.mayor',
+          running: true,
+          state: 'idle',
+          activity: 'idle',
+          context_pct: 12,
+        }),
+      ],
+      rigs: RIGS,
+      beads: [],
+      now: NOW,
+    });
+    expect(model.mayor?.label).toBe('mayor');
+    expect(model.mayor?.activity).toBe('idle');
+    expect(model.mayor?.contextPct).toBe(12);
+  });
+
+  it('matches bead assignees given as full agent names', () => {
+    const model = deriveCity({
+      sessions: [
+        session({
+          id: 'ga-nqxap',
+          template: 'is24-luxury-portal/gastown.refinery',
+          alias: 'is24-luxury-portal/gastown.refinery',
+          rig: 'is24-luxury-portal',
+        }),
+        session({
+          id: 'ga-p1',
+          template: 'is24-luxury-portal/gastown.polecat',
+          alias: 'is24-luxury-portal/gastown.nux',
+          rig: 'is24-luxury-portal',
+        }),
+      ],
+      rigs: RIGS,
+      beads: [
+        bead({ id: 'ilp-uak1', assignee: 'is24-luxury-portal/gastown.refinery' }),
+        bead({ id: 'ilp-36yd', status: 'in_progress', assignee: 'is24-luxury-portal/gastown.nux' }),
+      ],
+      now: NOW,
+    });
+    expect(model.rigs[0]!.mergeQueue.map((b) => b.id)).toEqual(['ilp-uak1']);
+    expect(model.rigs[0]!.polecats[0]!.bead?.id).toBe('ilp-36yd');
+  });
+
+  it('keeps formula and patrol bookkeeping beads off the board', () => {
+    expect(isWorkBead(bead({ id: 'ilp-mol-u1wz' }))).toBe(false);
+    expect(isWorkBead(bead({ id: 'ilp-wisp-1av', ephemeral: true }))).toBe(false);
+    expect(isWorkBead(bead({ id: 'ilp-dohq', issue_type: 'molecule' }))).toBe(false);
+    expect(isWorkBead(bead({ id: 'ilp-hzf.51' }))).toBe(true);
+    const model = deriveCity({
+      sessions: [],
+      rigs: RIGS,
+      beads: [
+        bead({ id: 'ilp-mol-u1wz' }),
+        bead({ id: 'ilp-uak1' }),
+        bead({ id: 'ilp-hzf', issue_type: 'epic' }),
+      ],
+      now: NOW,
+    });
+    expect(model.rigs[0]!.ready.map((b) => b.id)).toEqual(['ilp-uak1']);
   });
 });

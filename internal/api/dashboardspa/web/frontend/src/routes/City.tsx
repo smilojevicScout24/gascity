@@ -10,6 +10,7 @@ import { useCachedData } from '../hooks/useCachedData';
 import { useGcEventRefresh, type GcEventEnvelope } from '../hooks/useGcEvents';
 import { formatClockTime, formatRelative } from '../hooks/time';
 import { useVisibleInterval } from '../hooks/useVisibleInterval';
+import { listSupervisorAgents } from '../supervisor/agentReads';
 import { listSupervisorBeads, type SupervisorBead } from '../supervisor/beadReads';
 import { listSupervisorRigs } from '../supervisor/rigReads';
 import { listSupervisorSessions } from '../supervisor/sessionReads';
@@ -33,6 +34,7 @@ interface FeedItem {
 export function CityPage() {
   const now = useNow();
   const sessions = useCachedData('city:sessions', () => listSupervisorSessions());
+  const agents = useCachedData('city:agents', () => listSupervisorAgents());
   const rigs = useCachedData('city:rigs', () => listSupervisorRigs());
   const rigNames = useMemo(() => (rigs.data?.items ?? []).map((r) => r.name), [rigs.data]);
   const rigKey = rigNames.join(',');
@@ -47,6 +49,7 @@ export function CityPage() {
     () =>
       deriveCity({
         sessions: sessions.data?.items ?? [],
+        agents: agents.data?.items ?? [],
         rigs: rigs.data?.items ?? [],
         beads: beads.data?.items ?? [],
         closedBeads: closed.data?.items ?? [],
@@ -55,7 +58,7 @@ export function CityPage() {
       }),
     // `now` ticks every second; re-deriving on the minute is enough for "quiet Nm".
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessions.data, rigs.data, beads.data, closed.data, Math.floor(now / 60_000)],
+    [sessions.data, agents.data, rigs.data, beads.data, closed.data, Math.floor(now / 60_000)],
   );
   const layout = useMemo(() => layoutCity(model), [model]);
 
@@ -68,9 +71,10 @@ export function CityPage() {
   const { fx, feed, onEvent } = useCityFx(model, layout);
   const refreshAll = useCallback(() => {
     void sessions.refresh();
+    void agents.refresh();
     void beads.refresh();
     void closed.refresh();
-  }, [sessions, beads, closed]);
+  }, [sessions, agents, beads, closed]);
   const sseState = useGcEventRefresh(['session.', 'bead.', 'mail.', 'order.'], refreshAll, {
     coalesceMs: 3_000,
     matches: (event) => {
@@ -79,7 +83,10 @@ export function CityPage() {
     },
   });
   // Activity flips (thinking / tool use) don't always emit events.
-  useVisibleInterval(() => void sessions.refresh(), SESSION_POLL_MS);
+  useVisibleInterval(() => {
+    void sessions.refresh();
+    void agents.refresh();
+  }, SESSION_POLL_MS);
 
   const [selected, setSelected] = useState<CitySelection | null>(null);
   const error = sessions.error ?? rigs.error ?? beads.error;

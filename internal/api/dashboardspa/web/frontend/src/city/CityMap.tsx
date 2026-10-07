@@ -310,7 +310,7 @@ function District({ d }: { d: DistrictLayout }) {
       </text>
       <Sprite name="bldg-gate" at={d.gate} size={100} />
       <text x={d.gate.x} y={664} textAnchor="middle" fontSize={11}>
-        {rig.branch ?? 'main'}
+        {truncate(rig.branch ?? 'main', 11)}
       </text>
     </g>
   );
