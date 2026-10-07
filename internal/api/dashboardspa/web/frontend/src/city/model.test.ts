@@ -448,3 +448,47 @@ describe('live-city shapes (gc 1.4)', () => {
     expect(model.rigs[0]!.ready.map((b) => b.id)).toEqual(['ilp-uak1']);
   });
 });
+
+describe('roleSummary', () => {
+  it('describes each gastown role and prefers a pack description', async () => {
+    const { roleSummary } = await import('./roles');
+    const model = deriveCity({
+      sessions: [
+        session({ id: 'ga-m', template: 'gastown.mayor', alias: 'gastown.mayor' }),
+        session({
+          id: 'ga-x',
+          template: 'core.control-dispatcher',
+          alias: 'core.control-dispatcher',
+        }),
+        session({ id: 'ga-y', template: 'acme.helper', alias: 'acme.helper' }),
+      ],
+      agents: [
+        {
+          name: 'core.control-dispatcher',
+          pack: 'core',
+          available: true,
+          pack_derived: true,
+          running: true,
+          suspended: false,
+          state: 'idle',
+        },
+        {
+          name: 'acme.helper',
+          description: 'Answers questions.',
+          available: true,
+          pack_derived: true,
+          running: true,
+          suspended: false,
+          state: 'idle',
+        },
+      ] as SupervisorAgent[],
+      rigs: RIGS,
+      beads: [],
+      now: NOW,
+    });
+    expect(roleSummary(model.mayor!)).toMatch(/slings them to rig polecats/);
+    const [dispatcher, helper] = model.visitors;
+    expect(roleSummary(dispatcher!)).toBe('Agent from the core pack.');
+    expect(roleSummary(helper!)).toBe('Answers questions.');
+  });
+});

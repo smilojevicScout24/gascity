@@ -17,6 +17,7 @@ import { listSupervisorSessions } from '../supervisor/sessionReads';
 import { CityMap, statusLine, type CityFx, type CitySelection } from '../city/CityMap';
 import { layoutCity, STREET_Y, type Point } from '../city/layout';
 import { deriveCity, type CityActor, type CityBead, type CityModel } from '../city/model';
+import { roleSummary } from '../city/roles';
 import '../city/city.css';
 
 const FEED_LIMIT = 14;
@@ -364,6 +365,7 @@ function Detail({
   const rows: Array<[string, string]> = actor
     ? [
         ['template', actor.template],
+        ['role', roleSummary(actor)],
         ['session', actor.id.startsWith('agent:') ? 'not running' : actor.id],
         ['state', actor.stalled ? `${actor.state} · stalled` : actor.state],
         ['activity', statusLine(actor)],

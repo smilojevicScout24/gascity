@@ -46,6 +46,10 @@ export interface CityActor {
   /** Full agent name (`rig/gastown.furiosa`); bead assignees use this form. */
   alias?: string;
   template: string;
+  /** Pack-provided description of the agent, when the pack sets one. */
+  description?: string;
+  /** Pack the agent comes from (`gastown`, `core`, ...). */
+  pack?: string;
   rig?: string;
   state: string;
   activity?: string;
@@ -279,6 +283,8 @@ function toActor(
   const ctx = s.context_pct ?? agent?.context_pct;
   if (ctx !== undefined) actor.contextPct = ctx;
   if (s.last_active !== undefined) actor.lastActive = s.last_active;
+  if (agent?.description) actor.description = agent.description;
+  if (agent?.pack) actor.pack = agent.pack;
   if (bead) actor.bead = bead;
   if (busyAndQuiet) actor.quietMinutes = quiet;
   return actor;
@@ -312,6 +318,8 @@ function stoppedPoolMembers(
       const rig = resolveRigName(a.rig, rigs);
       if (rig !== undefined) actor.rig = rig;
       if (a.model !== undefined) actor.model = a.model;
+      if (a.description) actor.description = a.description;
+      if (a.pack) actor.pack = a.pack;
       return [actor];
     });
 }
