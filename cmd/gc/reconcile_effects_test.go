@@ -5,6 +5,9 @@ import (
 	"errors"
 	"io"
 	"maps"
+	"path/filepath"
+	"reflect"
+	goruntime "runtime"
 	"slices"
 	"sync"
 	"testing"
@@ -136,15 +139,50 @@ func TestExecutorRefusesStartsWhileClosed(t *testing.T) {
 	}
 }
 
-// Kills a per-kind exception to P3's deadlines in the executor: every kind
-// runs under exactly the deadline admission gives its intent (a start
-// startup_timeout + 10s, a row write 30s, every other effect 60s), and
-// settles there.
+// Kills an unregistered kind that runs something, never settles, or wedges
+// its in-flight entry: it settles refused with cause no-effect, echoing its
+// key, kind and seq. The registered row heal builds the row-write effect.
+func TestUnregisteredKindRefusesNoEffect(t *testing.T) {
+	clk := newFakePlannerClock(plannerT0)
+	x, posted := fakeClockExecutor(clk)
+	k := rowKey{Leg: rowLeg, ID: "gc-1"}
+	if err := x.submitIntent(&effectPass{}, intent{Kind: "drift-drain", Key: k, Deadline: plannerT0.Add(time.Minute)}, 3); err != nil {
+		t.Fatal(err)
+	}
+	if s := receive(t, posted); s.Outcome != settledRefused || s.Cause != causeNoEffect || s.Key != k || s.Kind != "drift-drain" || s.Seq != 3 {
+		t.Fatalf("settlement %+v, want refused with cause %q for %v seq 3", s, causeNoEffect, k)
+	}
+	if effectRegistry[intentRowHeal] == nil {
+		t.Fatal("the row heal has no effect")
+	}
+}
+
+// withRegistry replaces effectRegistry for the test. Tests that call it
+// must not run in parallel.
+func withRegistry(t *testing.T, reg map[string]effectBuilder) {
+	t.Helper()
+	saved := effectRegistry
+	effectRegistry = reg
+	t.Cleanup(func() { effectRegistry = saved })
+}
+
+// Kills a per-kind exception to P3's deadlines in the executor: every kind,
+// submitted as the pass submits it, runs under exactly the deadline
+// admission gives its intent (a start startup_timeout + 10s, a row write
+// 30s, every other effect 60s), and settles there.
 func TestDeadlinesHaveNoException(t *testing.T) {
 	clk := newFakePlannerClock(plannerT0)
 	x, posted := fakeClockExecutor(clk)
 	release := make(chan struct{})
 	defer close(release)
+	hung := func(*effectPass, intent) func(context.Context) settlement {
+		return func(context.Context) settlement { <-release; return settlement{Outcome: settledLanded} }
+	}
+	reg := make(map[string]effectBuilder)
+	for kind := range intentKinds {
+		reg[kind] = hung
+	}
+	withRegistry(t, reg)
 	startup := 2 * time.Minute
 	kinds := slices.Sorted(maps.Keys(intentKinds))
 	armed := make(map[time.Time]int)
@@ -159,7 +197,7 @@ func TestDeadlinesHaveNoException(t *testing.T) {
 		if got := intentKinds[kind].deadline(startup); got != want {
 			t.Fatalf("%s: admission's deadline %v, want %v", kind, got, want)
 		}
-		if err := x.submit(rowKey{ID: kind}, hungEffect(kind, uint64(i+1), plannerT0.Add(want), release)); err != nil {
+		if err := x.submitIntent(&effectPass{}, intent{Kind: kind, Key: rowKey{ID: kind}, Deadline: plannerT0.Add(want)}, uint64(i+1)); err != nil {
 			t.Fatal(err)
 		}
 		armed[plannerT0.Add(want)] += 2
@@ -177,25 +215,41 @@ func TestDeadlinesHaveNoException(t *testing.T) {
 
 // Kills executor-built causes that drop the finalize prefix, so a stop
 // verb's finalize would never wait on its own failures (v5.4 P4): a
-// finalize that panics or outlives its deadline settles with
-// causeFinalizePrefix on its cause, and admission then holds the finalize
-// back.
+// finalize that outlives its deadline, panics, or has no effect settles
+// with causeFinalizePrefix on its cause, and admission then holds the
+// finalize back.
 func TestExecutorCausesCarryTheFinalizePrefix(t *testing.T) {
 	clk := newFakePlannerClock(plannerT0)
 	x, posted := fakeClockExecutor(clk)
 	release := make(chan struct{})
 	defer close(release)
-	finalize := sessionEffect{Kind: intentStop, Finalize: true, Deadline: plannerT0.Add(time.Minute), Run: func(context.Context) settlement {
-		panic("finalize exploded")
-	}}
-	if err := x.submit(rowKey{ID: "panic"}, finalize); err != nil {
-		t.Fatal(err)
+	withRegistry(t, map[string]effectBuilder{
+		intentStop: func(_ *effectPass, it intent) func(context.Context) settlement {
+			return func(context.Context) settlement {
+				if it.Key.ID == "panic" {
+					panic("finalize exploded")
+				}
+				<-release
+				return settlement{Outcome: settledLanded}
+			}
+		},
+	})
+	finalize := func(kind, id string) intent {
+		return intent{Kind: kind, Key: rowKey{Leg: rowLeg, ID: id}, Finalize: true, Deadline: plannerT0.Add(time.Minute)}
 	}
-	if s := receive(t, posted); s.Cause != causeFinalizePrefix+causePanic {
-		t.Fatalf("panic: cause %q, want %q", s.Cause, causeFinalizePrefix+causePanic)
+	for i, it := range []intent{finalize(intentStop, "panic"), finalize("drift-drain", "no-effect")} {
+		if err := x.submitIntent(&effectPass{}, it, uint64(i+1)); err != nil {
+			t.Fatal(err)
+		}
+		want := effectCause(true, causePanic)
+		if it.Key.ID == "no-effect" {
+			want = effectCause(true, causeNoEffect)
+		}
+		if s := receive(t, posted); s.Cause != want {
+			t.Fatalf("%s: cause %q, want %q", it.Key.ID, s.Cause, want)
+		}
 	}
-	finalize.Run = func(context.Context) settlement { <-release; return settlement{Outcome: settledLanded} }
-	if err := x.submit(rowKey{ID: "deadline"}, finalize); err != nil {
+	if err := x.submitIntent(&effectPass{}, finalize(intentStop, "deadline"), 3); err != nil {
 		t.Fatal(err)
 	}
 	waitTimersAt(t, clk, plannerT0.Add(time.Minute), 2)
@@ -267,5 +321,21 @@ func TestExecutorPostsALateLandingsEvent(t *testing.T) {
 	close(release)
 	if s := receive(t, posted); s.Event == nil || s.Event.Type != ev.Type || s.Key.ID != "" || s.Outcome != 0 {
 		t.Fatalf("late post %+v, want the event alone", s)
+	}
+}
+
+// Kills an effect registered from a file the effect lint does not cover:
+// every builder in effectRegistry is defined in reconcile_effect_*.go or
+// reconcile_steps_*.go.
+func TestEffectRegistryBuildersAreLinted(t *testing.T) {
+	linted := effectLintFiles(t)
+	for kind, build := range effectRegistry {
+		file, _ := goruntime.FuncForPC(reflect.ValueOf(build).Pointer()).FileLine(reflect.ValueOf(build).Pointer())
+		if !slices.Contains(linted, filepath.Base(file)) {
+			t.Errorf("%s's effect is built in %s, outside the effect lint", kind, file)
+		}
+	}
+	if len(effectRegistry) == 0 {
+		t.Fatal("the registry is empty")
 	}
 }

@@ -24,11 +24,12 @@ import (
 const effectCancelBound = 10 * time.Second
 
 // Effect causes the executor sets: a Run that outlived its deadline (or the
-// shutdown deadline) or panicked. A start submitted while starts are closed
-// settles with causeSwapPause (P7; no backoff).
+// shutdown deadline) or panicked, a start submitted while starts are closed
+// (P7; no backoff), and an intent whose kind has no registered effect.
 const (
 	causeDeadline = "deadline"
 	causePanic    = "panic"
+	causeNoEffect = "no-effect"
 )
 
 // errEffectBusy refuses a second effect for a key, and errEffectsClosed any
@@ -106,9 +107,24 @@ func (x *effectExecutor) inFlight(k rowKey) bool {
 	return x.inflight[k] != nil
 }
 
+// submitIntent submits the registered effect of it for one pass, under the
+// in-flight entry's seq. The effect is built inside Run, off the planner
+// goroutine. The pass submits registered kinds only; a kind with no
+// registered effect settles refused with cause no-effect.
+func (x *effectExecutor) submitIntent(p *effectPass, it intent, seq uint64) error {
+	build := effectRegistry[it.Kind]
+	run := func(ctx context.Context) settlement {
+		if build == nil {
+			return settlement{Outcome: settledRefused, Cause: effectCause(it.Finalize, causeNoEffect)}
+		}
+		return build(p, it)(ctx)
+	}
+	return x.submit(it.Key, sessionEffect{Kind: it.Kind, Seq: seq, Finalize: it.Finalize, Deadline: it.Deadline, Run: run})
+}
+
 // submit starts e for k. It refuses, running nothing and posting nothing,
 // while k has an effect in flight or after stop: the caller then settles the
-// in-flight entry it added. A start submitted while
+// in-flight entry it added (planner.submit does). A start submitted while
 // starts are closed runs nothing and settles refused with cause swap-pause.
 func (x *effectExecutor) submit(k rowKey, e sessionEffect) error {
 	x.mu.Lock()
