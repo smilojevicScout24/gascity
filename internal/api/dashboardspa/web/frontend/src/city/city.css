@@ -1,0 +1,163 @@
+/* City view. Categorical slots (work / merge / civic) were validated for CVD
+   separation against both surfaces; text never wears them — labels stay in
+   the fg tokens and every coloured mark has a text correlate. */
+
+.city-root {
+  --city-work: #2a78d6;
+  --city-merge: #1baf7a;
+  --city-civic: #eda100;
+}
+:root[data-theme='dark'] .city-root {
+  --city-work: #3987e5;
+  --city-merge: #199e70;
+  --city-civic: #c98500;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) .city-root {
+    --city-work: #3987e5;
+    --city-merge: #199e70;
+    --city-civic: #c98500;
+  }
+}
+
+.city-map text {
+  font-family: inherit;
+  fill: oklch(var(--fg-muted));
+}
+.city-map .city-name {
+  fill: oklch(var(--fg));
+  font-weight: 500;
+}
+.city-map .city-caps {
+  fill: oklch(var(--fg-faint));
+  letter-spacing: 0.1em;
+}
+.city-map .city-hit {
+  cursor: pointer;
+}
+.city-map .city-hit:focus {
+  outline: none;
+}
+.city-map .city-hit:focus-visible .city-focus,
+.city-map .city-hit:hover .city-focus {
+  stroke: oklch(var(--rule));
+}
+.city-map .city-selected .city-focus {
+  stroke: oklch(var(--accent));
+}
+
+.city-moving {
+  transition: transform 1100ms cubic-bezier(0.45, 0, 0.55, 1);
+}
+.city-dog {
+  transition: transform 3000ms cubic-bezier(0.45, 0, 0.55, 1);
+}
+.city-fade {
+  transition: opacity 150ms ease-out;
+}
+
+.city-stalled image {
+  filter: drop-shadow(0 0 2px oklch(var(--accent))) drop-shadow(0 0 6px oklch(var(--accent)));
+}
+.city-tooling .city-bob {
+  animation: city-bob 450ms ease-in-out infinite alternate;
+}
+@keyframes city-bob {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-2.5px);
+  }
+}
+
+/* Deacon patrol: walk the street and turn at each end; two-frame walk cycle. */
+.city-patrol {
+  animation: city-patrol 48s linear infinite;
+}
+.city-face {
+  animation: city-face 48s steps(1) infinite;
+}
+.city-walk-a {
+  animation: city-walk 700ms steps(1) infinite;
+}
+.city-walk-b {
+  animation: city-walk 700ms steps(1) infinite reverse;
+}
+.city-still {
+  display: none;
+}
+@keyframes city-patrol {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(890px);
+  }
+}
+@keyframes city-face {
+  0% {
+    transform: scaleX(1);
+  }
+  50% {
+    transform: scaleX(-1);
+  }
+}
+@keyframes city-walk {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.city-spark {
+  animation: city-spark 900ms ease-out forwards;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes city-spark {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(4.5);
+    opacity: 0;
+  }
+}
+
+.city-scan {
+  animation: city-scan 1200ms ease-out forwards;
+}
+@keyframes city-scan {
+  from {
+    opacity: 0.9;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .city-moving,
+  .city-dog {
+    transition: none;
+  }
+  .city-patrol,
+  .city-face,
+  .city-tooling .city-bob,
+  .city-spark,
+  .city-scan {
+    animation: none;
+  }
+  .city-walk-a,
+  .city-walk-b {
+    display: none;
+  }
+  .city-still {
+    display: inline;
+  }
+}
