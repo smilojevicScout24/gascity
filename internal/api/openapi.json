@@ -605,6 +605,10 @@
           "available": {
             "type": "boolean"
           },
+          "configured_model": {
+            "description": "Model selected by the effective provider and agent configuration; not observed runtime telemetry.",
+            "type": "string"
+          },
           "context_pct": {
             "format": "int64",
             "type": "integer"

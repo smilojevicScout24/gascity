@@ -246,6 +246,7 @@ describe('AgentsPage (post-ay6 regressions)', () => {
             suspended: false,
             state: 'active',
             rig: 'gascity-packs',
+            configured_model: 'sonnet-configured',
             display_name: 'Claude (Account 5)',
             provider: 'claude-5',
             session: {
@@ -262,6 +263,7 @@ describe('AgentsPage (post-ay6 regressions)', () => {
             suspended: false,
             state: 'asleep',
             rig: 'gascity-packs',
+            configured_model: 'haiku-configured',
             provider: 'claude-5',
           },
         ],
@@ -286,6 +288,7 @@ describe('AgentsPage (post-ay6 regressions)', () => {
     // The running agent is shown with the restored 'rig · agent' label.
     const runningLink = await screen.findByRole('link', { name: /polecat-1/i });
     expect(runningLink.textContent).toBe('gascity-packs · polecat-1');
+    expect(screen.getByText('Claude (Account 5) · sonnet-configured (configured)')).toBeDefined();
 
     // The asleep agent is hidden by the default-on running filter.
     expect(screen.queryByRole('link', { name: /polecat-2/i })).toBeNull();
@@ -294,6 +297,7 @@ describe('AgentsPage (post-ay6 regressions)', () => {
     fireEvent.click(runningCheckbox);
     const sleepingLink = await screen.findByRole('link', { name: /polecat-2/i });
     expect(sleepingLink.textContent).toBe('gascity-packs · polecat-2');
+    expect(screen.getByText('claude-5 · haiku-configured (configured)')).toBeDefined();
   });
 
   it('renders a genuine supervisor agents failure as operator-safe unavailable copy', async () => {

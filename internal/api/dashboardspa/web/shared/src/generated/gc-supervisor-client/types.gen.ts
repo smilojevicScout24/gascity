@@ -155,6 +155,10 @@ export type AgentResponse = {
     active_bead?: string;
     activity?: string;
     available: boolean;
+    /**
+     * Model selected by the effective provider and agent configuration; not observed runtime telemetry.
+     */
+    configured_model?: string;
     context_pct?: number;
     context_window?: number;
     description?: string;

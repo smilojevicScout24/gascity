@@ -1571,6 +1571,7 @@ export const zAgentResponse = z.object({
     active_bead: z.string().optional(),
     activity: z.string().optional(),
     available: z.boolean(),
+    configured_model: z.string().optional(),
     context_pct: z.coerce.bigint().min(BigInt('-9223372036854775808'), { error: 'Invalid value: Expected int64 to be >= -9223372036854775808' }).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
     context_window: z.coerce.bigint().min(BigInt('-9223372036854775808'), { error: 'Invalid value: Expected int64 to be >= -9223372036854775808' }).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
     description: z.string().optional(),
