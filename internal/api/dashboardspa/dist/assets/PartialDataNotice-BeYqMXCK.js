@@ -1,0 +1,1 @@
+import{j as r}from"./index-XL8M85Xy.js";function i({label:a,title:e,show:s=!0,glyph:t}){return s?r.jsxs("span",{className:"normal-case text-body text-warn",role:"status",title:e,children:[t!==void 0&&r.jsxs("span",{"aria-hidden":"true",children:[t," "]}),a]}):null}export{i as P};
