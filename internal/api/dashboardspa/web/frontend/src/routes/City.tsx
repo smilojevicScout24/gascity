@@ -96,7 +96,7 @@ export function CityPage() {
   return (
     <section className="city-root">
       <PageHeader
-        title="Gas City — Life in Gastown"
+        title="City"
         synopsis={synopsis(model)}
         meta={
           <>
