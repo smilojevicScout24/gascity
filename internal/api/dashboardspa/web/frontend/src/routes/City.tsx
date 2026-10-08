@@ -134,7 +134,7 @@ export function CityPage() {
         <aside className="space-y-8 min-w-0">
           <Detail model={model} selected={selected} now={now} lastSeenModels={lastSeenModels} />
           <Feed items={feed} />
-          <Roster model={model} onSelect={setSelected} lastSeenModels={lastSeenModels} />
+          <Roster model={model} onSelect={setSelected} />
         </aside>
       </div>
     </section>
@@ -452,15 +452,7 @@ function Feed({ items }: { items: ReadonlyArray<FeedItem> }) {
   );
 }
 
-function Roster({
-  model,
-  onSelect,
-  lastSeenModels,
-}: {
-  model: CityModel;
-  onSelect: (s: CitySelection) => void;
-  lastSeenModels: ReadonlyMap<string, string>;
-}) {
+function Roster({ model, onSelect }: { model: CityModel; onSelect: (s: CitySelection) => void }) {
   const order = ['mayor', 'deacon', 'boot', 'witness', 'refinery', 'polecat', 'dog', 'visitor'];
   const rows = [...model.actors].sort(
     (a, b) =>
@@ -496,12 +488,6 @@ function Roster({
                 >
                   {a.label}
                 </button>
-                <span
-                  className="block truncate text-label text-fg-muted"
-                  title={modelLine(a, lastSeenModels)}
-                >
-                  {modelLine(a, lastSeenModels)}
-                </span>
               </td>
               <td
                 className={`py-1 pr-2 truncate max-w-[120px] ${a.stalled ? 'text-accent' : 'text-fg-muted'}`}
@@ -567,7 +553,6 @@ function readLastSeenModels(): Map<string, string> {
 
 function modelLine(actor: CityActor, lastSeen: ReadonlyMap<string, string>): string {
   if (actor.model) return actor.model;
-  if (actor.configuredModel) return `${actor.configuredModel} (configured)`;
   const remembered = lastSeen.get(actor.alias ?? actor.label);
   if (remembered) return `${remembered} (last seen)`;
   return actor.asleep ? 'not reported while stopped' : '·';

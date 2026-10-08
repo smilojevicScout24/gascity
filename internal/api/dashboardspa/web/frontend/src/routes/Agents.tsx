@@ -279,9 +279,9 @@ export function AgentsPage() {
           // display_name is the provider's human-readable label
           // (e.g. "Claude (Account 5)") and reads as muted secondary context.
           const secondary =
-            r.display_name && r.display_name !== r.name ? r.display_name : (r.provider ?? '');
-          const model = r.model ?? (r.configured_model ? `${r.configured_model} (configured)` : '');
-          const providerAndModel = [secondary, model].filter(Boolean).join(' · ');
+            r.display_name && r.display_name !== r.name
+              ? r.display_name
+              : (r.provider ?? r.model ?? '');
           // ay6.2: orphan agents (no bound session) still render a link, but
           // AgentDetail resolves nothing — a distinct title tooltip and muted
           // color pre-empt the dead-end without disabling the link.
@@ -301,9 +301,9 @@ export function AgentsPage() {
               >
                 {agentRowLabel(r)}
               </Link>
-              {providerAndModel && (
+              {secondary && (
                 <div className="text-label uppercase tracking-wider text-fg-faint mt-1 truncate">
-                  {providerAndModel}
+                  {secondary}
                 </div>
               )}
             </div>

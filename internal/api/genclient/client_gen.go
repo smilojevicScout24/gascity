@@ -1025,12 +1025,9 @@ type AgentPatchSetInputBody struct {
 
 // AgentResponse defines model for AgentResponse.
 type AgentResponse struct {
-	ActiveBead *string `json:"active_bead,omitempty"`
-	Activity   *string `json:"activity,omitempty"`
-	Available  bool    `json:"available"`
-
-	// ConfiguredModel Model selected by the effective provider and agent configuration; not observed runtime telemetry.
-	ConfiguredModel   *string      `json:"configured_model,omitempty"`
+	ActiveBead        *string      `json:"active_bead,omitempty"`
+	Activity          *string      `json:"activity,omitempty"`
+	Available         bool         `json:"available"`
 	ContextPct        *int64       `json:"context_pct,omitempty"`
 	ContextWindow     *int64       `json:"context_window,omitempty"`
 	Description       *string      `json:"description,omitempty"`

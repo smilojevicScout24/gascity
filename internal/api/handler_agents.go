@@ -71,10 +71,9 @@ type agentResponse struct {
 	// Activity indicates session turn state: "idle", "in-turn", or omitted.
 	Activity string `json:"activity,omitempty"`
 
-	ConfiguredModel string `json:"configured_model,omitempty" doc:"Model selected by the effective provider and agent configuration; not observed runtime telemetry."`
-	Model           string `json:"model,omitempty"`
-	ContextPct      *int   `json:"context_pct,omitempty"`
-	ContextWindow   *int   `json:"context_window,omitempty"`
+	Model         string `json:"model,omitempty"`
+	ContextPct    *int   `json:"context_pct,omitempty"`
+	ContextWindow *int   `json:"context_window,omitempty"`
 }
 
 type sessionInfo struct {

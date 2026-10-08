@@ -55,7 +55,6 @@ func (s *Server) humaHandleAgentList(ctx context.Context, input *AgentListInput)
 		// pool-expanded instance, so compute it once per source agent.
 		pack, packDerived := agentPackProvenance(a, rawCfg, cfg)
 		expanded := expandAgent(a, cityName, sessTmpl, sp)
-		configuredModel := configuredAgentModel(a, cfg)
 		for _, ea := range expanded {
 			if input.Rig != "" && ea.rig != input.Rig {
 				continue
@@ -95,7 +94,6 @@ func (s *Server) humaHandleAgentList(ctx context.Context, input *AgentListInput)
 
 			resp := agentResponse{
 				Name:              ea.qualifiedName,
-				ConfiguredModel:   configuredModel,
 				Description:       ea.description,
 				Running:           running,
 				Suspended:         suspended,
@@ -216,7 +214,6 @@ func (s *Server) agentByName(name string) (*IndexOutput[agentResponse], error) {
 
 	resp := agentResponse{
 		Name:              name,
-		ConfiguredModel:   configuredAgentModel(agentCfg, cfg),
 		Description:       agentCfg.Description,
 		Running:           running,
 		Suspended:         suspended,

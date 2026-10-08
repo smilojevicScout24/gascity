@@ -54,7 +54,6 @@ export interface CityActor {
   state: string;
   activity?: string;
   model?: string;
-  configuredModel?: string;
   contextPct?: number;
   lastActive?: string;
   bead?: CityBead;
@@ -281,8 +280,6 @@ function toActor(
   if (activity !== undefined) actor.activity = activity;
   const model = s.model ?? agent?.model;
   if (model !== undefined) actor.model = model;
-  const configuredModel = s.options?.model ?? agent?.configured_model;
-  if (configuredModel !== undefined) actor.configuredModel = configuredModel;
   const ctx = s.context_pct ?? agent?.context_pct;
   if (ctx !== undefined) actor.contextPct = ctx;
   if (s.last_active !== undefined) actor.lastActive = s.last_active;
@@ -321,7 +318,6 @@ function stoppedPoolMembers(
       const rig = resolveRigName(a.rig, rigs);
       if (rig !== undefined) actor.rig = rig;
       if (a.model !== undefined) actor.model = a.model;
-      if (a.configured_model !== undefined) actor.configuredModel = a.configured_model;
       if (a.description) actor.description = a.description;
       if (a.pack) actor.pack = a.pack;
       return [actor];
