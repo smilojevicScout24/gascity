@@ -25,26 +25,22 @@ jobs:
   sync:
     if: github.event.repository.fork
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     permissions:
       contents: write
     env:
       FORK_BRANCH: ${{ inputs.fork_branch || github.event.repository.default_branch }}
       UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'main' }}
     steps:
-      - name: Check out the fork with complete history
+      - name: Check out the selected fork branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.FORK_BRANCH }}
-          fetch-depth: 0
+          fetch-depth: 1
+          fetch-tags: false
           token: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
 
-      - name: Set up Go for the repository make targets
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-
-      - name: Merge upstream without overwriting fork changes
+      - name: Prepare the upstream source merge
         id: merge
         shell: bash
         run: |
@@ -53,16 +49,23 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git remote add upstream https://github.com/gastownhall/gascity.git
-          before=$(git rev-parse HEAD)
-          make sync-upstream
-          if [ "$before" = "$(git rev-parse HEAD)" ]; then
-            echo 'changed=false' >> "$GITHUB_OUTPUT"
-            echo 'Fork is already up to date.' >> "$GITHUB_STEP_SUMMARY"
-          else
+          git fetch --quiet --no-tags --unshallow origin "refs/heads/$FORK_BRANCH"
+          SYNC_UPSTREAM_MODE=prepare bash scripts/sync-upstream.sh
+          if git rev-parse --quiet --verify MERGE_HEAD >/dev/null; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'Fork is already up to date; no build or push needed.' >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Set up Node
+      - name: Set up the merged source's Go version for Make
+        if: steps.merge.outputs.changed == 'true'
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up the merged source's Node version
         if: steps.merge.outputs.changed == 'true'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -70,28 +73,25 @@ jobs:
           cache: npm
           cache-dependency-path: internal/api/dashboardspa/web/package-lock.json
 
-      - name: Install native Go dependencies
+      - name: Rebuild the combined dashboard and finish the merge
         if: steps.merge.outputs.changed == 'true'
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libicu-dev
+        run: SYNC_UPSTREAM_MODE=finish make sync-upstream
 
-      - name: Validate the integrated dashboard and rebuild its embedded bundle
+      - name: Check the visualization against the merged source
         if: steps.merge.outputs.changed == 'true'
-        run: make dashboard-check-npm
-
-      - name: Commit the rebuilt bundle and push the validated merge
-        if: steps.merge.outputs.changed == 'true'
-        shell: bash
+        working-directory: internal/api/dashboardspa/web
         run: |
-          set -euo pipefail
-          git diff --check
-          git add internal/api/dashboardspa/dist
-          if ! git diff --cached --quiet; then
-            git commit -m 'build(dashboard): refresh fork bundle after upstream sync'
-          fi
+          npm run typecheck
+          npm run --workspace gas-city-dashboard-frontend typecheck:test
+          npm run --workspace gas-city-dashboard-frontend test
+
+      - name: Push the integrated fork
+        if: steps.merge.outputs.changed == 'true'
+        run: |
           git push origin "HEAD:refs/heads/$FORK_BRANCH"
-          echo 'Upstream merged, dashboard verified, and fork updated.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Upstream merged, dashboard rebuilt and checked, and fork updated.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Explain an unsuccessful sync
         if: failure()
         run: |
-          echo 'Sync stopped. Review merge conflicts, failed checks, or repository token permissions in this run. No force push is used.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Sync stopped. Review source conflicts, build/check failures, or repository token permissions. No force push is used.' >> "$GITHUB_STEP_SUMMARY"

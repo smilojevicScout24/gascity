@@ -235,20 +235,25 @@ To bring the current fork branch up to date:
 # Add the remote once if this clone does not already have it.
 git remote add upstream https://github.com/gastownhall/gascity.git
 make sync-upstream
-make dashboard-check-npm
 ```
 
 `UPSTREAM_REMOTE` and `UPSTREAM_BRANCH` override `upstream` and `main`.
-The command requires a checked-out branch and clean tracked files, merges
-without rebasing or resetting fork work, and never pushes. A conflict remains
-in the working tree for review. Commit the resolved merge and regenerated
-embedded dashboard bundle before pushing.
+The command requires a checked-out branch, clean tracked files, and the Go/Node
+versions required by the merged source. It merges without rebasing or resetting
+fork work, rebuilds the embedded dashboard from the combined source, and commits
+the merge locally. It never pushes. Conflicts confined to generated `dist/`
+files are resolved by rebuilding; real source conflicts remain open for review.
+A failed build also leaves the merge open, without a commit. After fixing the
+cause, `SYNC_UPSTREAM_MODE=finish make sync-upstream` finishes that merge;
+`git merge --abort` abandons it. No upstream changes means no build or commit.
 
 The `Sync fork with upstream` Actions workflow runs daily at 03:17 UTC, or on
 manual dispatch. It updates the fork's default branch by default; dispatch can
-select another fork branch. It validates the integrated dashboard, commits any
-rebuilt embedded bundle, and pushes only after checks pass. Runs without new
-upstream commits skip validation and pushing. Conflicts or failed checks stop
+select another fork branch. It prepares the source merge first, then selects
+the merged source's Go/Node versions, rebuilds the dashboard, and runs frontend
+typechecks and tests before pushing. It does not run the upstream backend CI or
+install native Go test dependencies. Runs without new upstream commits skip
+all tool setup, builds, checks, and pushing. Source conflicts or failed checks stop
 the run without a force push. The workflow does not deploy EC2.
 
 After pushing this extension, merge it into the fork's default branch (or make
