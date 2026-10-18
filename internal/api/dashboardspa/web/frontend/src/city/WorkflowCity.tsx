@@ -1,13 +1,7 @@
 import type { CityActor, CityModel } from './model';
 import type { CitySelection } from './CityMap';
-import { spriteUrl } from './sprites';
+import { spriteFor, spriteUrl, workflowPortrait } from './sprites';
 import { workflowDistricts, workflowRole, WORKFLOW_STAGES } from './workflow';
-
-const PORTRAITS = import.meta.glob<string>('./workflow-sprites/*.webp', {
-  eager: true,
-  query: '?url',
-  import: 'default',
-});
 
 export function WorkflowCity({
   model,
@@ -83,7 +77,7 @@ export function WorkflowCity({
         </section>
       ))}
       <p className="workflow-footnote">
-        Residents move with live assignments. Office order describes disciplines; the formula
+        Assignments and activity update live. Office order describes disciplines; the formula
         controls dependencies, parallel work and review loops.
       </p>
     </div>
@@ -100,7 +94,7 @@ function Resident({
   onSelect: (selection: CitySelection) => void;
 }) {
   const role = workflowRole(actor.template);
-  const portrait = role ? PORTRAITS[`./workflow-sprites/${role.sprite}.webp`] : undefined;
+  const portrait = workflowPortrait(actor.template) ?? (spriteUrl(spriteFor(actor)) || undefined);
   const state = actor.asleep
     ? 'asleep'
     : actor.stalled

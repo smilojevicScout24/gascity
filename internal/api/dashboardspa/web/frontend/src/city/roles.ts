@@ -20,10 +20,13 @@ const ROLE_SUMMARY: Readonly<Record<Exclude<CityRole, 'visitor'>, string>> = {
     'Rig worker: claims a bead, implements it in its own worktree, pushes a branch and hands it to the refinery.',
 };
 
-export function roleSummary(actor: CityActor): string {
+export function roleSummary(
+  actor: CityActor,
+  presentation: 'gastown' | 'gascity' = 'gastown',
+): string {
   if (actor.description) return actor.description;
   const workflow = workflowRole(actor.template);
-  if (actor.role === 'visitor' && workflow) return workflow.summary;
+  if (workflow && (actor.role === 'visitor' || presentation === 'gascity')) return workflow.summary;
   if (actor.role === 'visitor') {
     return actor.pack ? `Agent from the ${actor.pack} pack.` : 'Agent from another pack.';
   }

@@ -2,12 +2,25 @@
 // assets/ (immutable-cached by the embedded SPA handler).
 
 import type { CityActor } from './model';
+import { workflowRole } from './workflow';
 
 const URLS = import.meta.glob<string>('./sprites/*.webp', {
   eager: true,
   query: '?url',
   import: 'default',
 });
+
+const WORKFLOW_PORTRAITS = import.meta.glob<string>('./workflow-sprites/*.webp', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+});
+
+/** Known supporting roles use the same portrait in both city presentations. */
+export function workflowPortrait(template: string): string | undefined {
+  const role = workflowRole(template);
+  return role ? WORKFLOW_PORTRAITS[`./workflow-sprites/${role.sprite}.webp`] : undefined;
+}
 
 export function spriteUrl(name: string): string {
   return URLS[`./sprites/${name}.webp`] ?? '';

@@ -49,6 +49,12 @@ a sanctioned bypass of the worker boundary. Do not add others; see
 
 ## Dashboard and API-schema gates
 
+Both city views must retain every configured agent in their roster, including dormant
+agents and roles unknown to its presentation table. Role labels and portraits
+must not determine roster membership. Awake-session metrics come from reported
+sessions, not configured-agent running flags. The Gastown map keeps its cast and
+role descriptions, depicts known supporting roles, and links overflow to the full roster.
+
 - `make dashboard-check` passes for any change touching `internal/api/`,
   `internal/api/openapi.json`, `docs/reference/schema/openapi.*`,
   `internal/api/dashboardspa/`, or generated dashboard types. It runs the
