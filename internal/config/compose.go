@@ -142,6 +142,13 @@ func LoadWithIncludes(fs fsys.FS, path string, extraIncludes ...string) (*City, 
 
 // LoadWithIncludesOptions loads a city.toml with the supplied load options.
 func LoadWithIncludesOptions(fs fsys.FS, path string, opts LoadOptions, extraIncludes ...string) (*City, *Provenance, error) {
+	// Convention trees are hashed before the load reads them so an edit that
+	// lands mid-load cannot be stamped with a revision newer than the
+	// content loaded (see conventionRevisionInputs).
+	var conventionInputs *conventionRevisionInputs
+	if !opts.SkipRevisionSnapshot {
+		conventionInputs = captureConventionRevisionInputs(fs, filepath.Dir(path))
+	}
 	data, err := fs.ReadFile(path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("loading config %q: %w", path, err)
@@ -879,7 +886,7 @@ func LoadWithIncludesOptions(fs fsys.FS, path string, opts LoadOptions, extraInc
 	// via SkipRevisionSnapshot; Revision falls back to reading from disk, so
 	// the value is the same either way.
 	if !opts.SkipRevisionSnapshot {
-		prov.captureRevisionSnapshot(fs, root, cityRoot)
+		prov.captureRevisionSnapshot(fs, root, cityRoot, conventionInputs)
 	}
 
 	return root, prov, nil
@@ -1177,12 +1184,16 @@ func mergeFragment(base, fragment *City, fragMeta toml.MetaData, fragPath string
 	if fragMeta.IsDefined("daemon") {
 		formulaV2 := base.Daemon.FormulaV2
 		sessionReconciler := base.Daemon.SessionReconciler
+		workLadder := base.Daemon.WorkLadder
 		base.Daemon = fragment.Daemon
 		if !fragMeta.IsDefined("daemon", "formula_v2") && !fragMeta.IsDefined("daemon", "graph_workflows") {
 			base.Daemon.FormulaV2 = formulaV2
 		}
 		if !fragMeta.IsDefined("daemon", "session_reconciler") {
 			base.Daemon.SessionReconciler = sessionReconciler
+		}
+		if !fragMeta.IsDefined("daemon", "work_ladder") {
+			base.Daemon.WorkLadder = workLadder
 		}
 	}
 	if fragMeta.IsDefined("session") {
@@ -1661,6 +1672,7 @@ func parseWithMeta(data []byte, source string) (*City, toml.MetaData, []string, 
 	normalizeLegacyOrderOverrideAliases(&cfg)
 	warnings = append(warnings, CheckUndecodedKeys(md, source)...)
 	warnings = append(warnings, sessionReconcilerWarnings(&cfg, source)...)
+	warnings = append(warnings, workLadderWarnings(&cfg, source)...)
 	// Stamp source=sourceInline on inline [[agent]] tables. For fragments,
 	// adjustAgentPaths later sets SourceDir, which takes precedence in
 	// describeSource (FR-1). For the root city.toml, SourceDir is empty
