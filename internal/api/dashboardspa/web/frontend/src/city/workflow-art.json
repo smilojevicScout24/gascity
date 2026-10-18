@@ -1,0 +1,46 @@
+{
+  "planner": {
+    "tool": "built-in imagegen",
+    "prompt": "Use case: identity-preserve. Edit target: attached existing animal sprite. Create a separate upgraded wardrobe variant for a reusable Gas City workflow visualization. The same barn owl, now a distinguished city architect and planning officer wearing a perfectly fitted charcoal three-piece suit, dusk teal waistcoat, cream shirt, brass pocket watch and round spectacles. Replace the cloak and lantern with a rolled blueprint held under one wing and a brass drafting compass in the other. Keep face identity and large amber eyes. Preserve the hand-inked storybook illustration style, soft gouache shading, warm sepia, amber and cream palette with muted dusk teal/slate accents, Art Deco 1930s city mood. Single complete full-body animal, 3/4 front view, centered horizontally, same proportions as input; feet along baseline at bottom of square canvas with no clipping, entire hat/head and props visible. Friendly expressive face. Genuine transparent background. No text, letters, logos, scenery, frames, floor or cast shadow. 1024 square.",
+    "output": "planner.webp",
+    "export": {
+      "width": 384,
+      "height": 384,
+      "alpha": true
+    },
+    "reference": "sprites/deacon-idle.webp"
+  },
+  "engineer": {
+    "tool": "built-in imagegen",
+    "prompt": "Use case: identity-preserve. Edit target: attached existing animal sprite. Create a separate upgraded wardrobe variant for a reusable Gas City workflow visualization. The same dark brown and cream polecat, now a smart city engineer in a fitted slate-blue waistcoat over a crisp cream shirt with rolled sleeves, neat dark trousers, polished brown ankle boots and a compact brass tool belt. Retain goggles on head and the large signature wrench over shoulder. Clothing is refined and well kept, no patches. Preserve the hand-inked storybook illustration style, soft gouache shading, warm sepia, amber and cream palette with muted dusk teal/slate accents, Art Deco 1930s city mood. Single complete full-body animal, 3/4 front view, centered horizontally, same proportions as input; feet along baseline at bottom of square canvas with no clipping, entire hat/head and props visible. Friendly expressive face. Genuine transparent background. No text, letters, logos, scenery, frames, floor or cast shadow. 1024 square.",
+    "output": "engineer.webp",
+    "export": {
+      "width": 384,
+      "height": 384,
+      "alpha": true
+    },
+    "reference": "sprites/polecat-a-idle.webp"
+  },
+  "reviewer": {
+    "tool": "built-in imagegen",
+    "prompt": "Use case: identity-preserve. Edit target: attached existing animal sprite. Create a separate upgraded wardrobe variant for a reusable Gas City workflow visualization. The same meerkat, now a sophisticated city quality inspector wearing a sharply tailored cream trench coat over a charcoal suit with rust waistcoat, polished boots, round brass reading glasses. Replace telescope or binoculars with a leather clipboard with blank paper in one hand and a fountain pen in the other. Keep recognizable face and proportions. Preserve the hand-inked storybook illustration style, soft gouache shading, warm sepia, amber and cream palette with muted dusk teal/slate accents, Art Deco 1930s city mood. Single complete full-body animal, 3/4 front view, centered horizontally, same proportions as input; feet along baseline at bottom of square canvas with no clipping, entire hat/head and props visible. Friendly expressive face. Genuine transparent background. No text, letters, logos, scenery, frames, floor or cast shadow. 1024 square.",
+    "output": "reviewer.webp",
+    "export": {
+      "width": 384,
+      "height": 384,
+      "alpha": true
+    },
+    "reference": "sprites/witness-idle.webp"
+  },
+  "publisher": {
+    "tool": "built-in imagegen",
+    "prompt": "Use case: identity-preserve. Edit target: attached existing animal sprite. Create a separate upgraded wardrobe variant for a reusable Gas City workflow visualization. The same panda, now a sophisticated city release director in a charcoal pinstripe suit, rich teal waistcoat, cream shirt, amber tie and polished oxford shoes. Remove goggles and utility pouch. Hold a slim leather document folio under one arm and a large brass seal stamp in the other, confident welcoming expression. Preserve the hand-inked storybook illustration style, soft gouache shading, warm sepia, amber and cream palette with muted dusk teal/slate accents, Art Deco 1930s city mood. Single complete full-body animal, 3/4 front view, centered horizontally, same proportions as input; feet along baseline at bottom of square canvas with no clipping, entire hat/head and props visible. Friendly expressive face. Genuine transparent background. No text, letters, logos, scenery, frames, floor or cast shadow. 1024 square.",
+    "output": "publisher.webp",
+    "export": {
+      "width": 384,
+      "height": 384,
+      "alpha": true
+    },
+    "reference": "sprites/refinery-idle.webp"
+  }
+}
