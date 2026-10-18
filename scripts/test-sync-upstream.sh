@@ -36,6 +36,7 @@ fixture() {
     git mv internal/api/dashboardspa/dist/assets/base.js internal/api/dashboardspa/dist/assets/upstream.js
     printf 'upstream bundle\n' >> internal/api/dashboardspa/dist/assets/upstream.js
     printf 'new upstream source\n' > source.txt
+    printf 'intentional patch context whitespace \n' > upstream-fixture.patch
     git add .; git commit -qm update
   )
 }

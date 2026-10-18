@@ -68,6 +68,6 @@ reject_source_conflicts
 git rm -r -q -f --ignore-unmatch -- "$dist"
 make dashboard-build-npm
 git add -A -- "$dist"
-git diff --cached --check
+git diff --cached --check -- "$dist"
 git commit --no-edit
 echo 'Upstream merged and embedded dashboard rebuilt. No push was made.'
