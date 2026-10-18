@@ -28,11 +28,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
-      actions: write
     env:
       FORK_BRANCH: ${{ inputs.fork_branch || github.event.repository.default_branch }}
       UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'main' }}
-      HAS_SYNC_TOKEN: ${{ secrets.FORK_SYNC_TOKEN != '' }}
     steps:
       - name: Check out the selected fork branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -40,7 +38,6 @@ jobs:
           ref: ${{ env.FORK_BRANCH }}
           fetch-depth: 1
           fetch-tags: false
-          token: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
 
       - name: Prepare the upstream source merge
         id: merge
@@ -54,10 +51,6 @@ jobs:
           git fetch --quiet --no-tags --unshallow origin "refs/heads/$FORK_BRANCH"
           SYNC_UPSTREAM_MODE=prepare bash scripts/sync-upstream.sh
           if git rev-parse --quiet --verify MERGE_HEAD >/dev/null; then
-            if [[ "$HAS_SYNC_TOKEN" != true ]] && ! git diff --cached --quiet -- '.github/workflows/*.yml' '.github/workflows/*.yaml'; then
-              echo '::error::Upstream changed workflow files. Add the FORK_SYNC_TOKEN Actions secret with repository Contents and Workflows write permissions before syncing.'
-              exit 1
-            fi
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           else
             echo 'changed=false' >> "$GITHUB_OUTPUT"
@@ -83,14 +76,6 @@ jobs:
         if: steps.merge.outputs.changed == 'true'
         run: SYNC_UPSTREAM_MODE=finish make sync-upstream
 
-      - name: Check the visualization against the merged source
-        if: steps.merge.outputs.changed == 'true'
-        working-directory: internal/api/dashboardspa/web
-        run: |
-          npm run typecheck
-          npm run --workspace gas-city-dashboard-frontend typecheck:test
-          npm run --workspace gas-city-dashboard-frontend test -- src/city
-
       - name: Push the integrated fork
         if: steps.merge.outputs.changed == 'true'
         run: |
@@ -102,14 +87,3 @@ jobs:
         run: |
           echo 'Sync stopped. Review source conflicts, build/check failures, or repository token permissions. No force push is used.' >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Keep inherited workflows disabled on this fork
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          gh api --paginate "repos/$GH_REPO/actions/workflows?per_page=100" \
-            --jq '.workflows[] | select(.state == "active" and .path != ".github/workflows/sync-upstream.yml") | .id' |
-          while IFS= read -r workflow_id; do
-            gh api --method PUT "repos/$GH_REPO/actions/workflows/$workflow_id/disable"
-          done

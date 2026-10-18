@@ -14,7 +14,8 @@ fixture() {
   git -C "$case_dir/upstream" init -q -b main
   (
     cd "$case_dir/upstream"
-    mkdir -p internal/api/dashboardspa/dist/assets
+    mkdir -p internal/api/dashboardspa/dist/assets .github/workflows
+    printf "original workflow\n" > .github/workflows/sync.yml
     printf 'base\n' > source.txt
     printf 'extension\n' > fork.txt
     i=0; while (( i < 40 )); do printf 'generated base line %s\n' "$i"; i=$((i+1)); done > internal/api/dashboardspa/dist/assets/base.js
@@ -28,6 +29,7 @@ fixture() {
     git mv internal/api/dashboardspa/dist/assets/base.js internal/api/dashboardspa/dist/assets/fork.js
     printf 'fork bundle\n' >> internal/api/dashboardspa/dist/assets/fork.js
     printf 'fork feature\n' > fork.txt
+    printf 'fork-owned workflow\n' > .github/workflows/sync.yml
     if [[ "$1" == source-conflict ]]; then printf 'fork source\n' > source.txt; fi
     git add .; git commit -qm extension
   )
@@ -36,6 +38,8 @@ fixture() {
     git mv internal/api/dashboardspa/dist/assets/base.js internal/api/dashboardspa/dist/assets/upstream.js
     printf 'upstream bundle\n' >> internal/api/dashboardspa/dist/assets/upstream.js
     printf 'new upstream source\n' > source.txt
+    printf 'changed upstream workflow\n' > .github/workflows/sync.yml
+    printf 'new upstream CI\n' > .github/workflows/new-ci.yml
     printf 'intentional patch context whitespace \n' > upstream-fixture.patch
     git add .; git commit -qm update
   )
@@ -44,6 +48,8 @@ sync() { (cd "$case_dir/fork"; SYNC_UPSTREAM_MODE="${1:-sync}" bash "$script"); 
 fixture generated
 sync > "$root/generated.log" 2>&1 || { cat "$root/generated.log"; exit 1; }
 git -C "$case_dir/fork" merge-base --is-ancestor upstream/main HEAD
+test "$(cat "$case_dir/fork/.github/workflows/sync.yml")" = 'fork-owned workflow'
+test ! -f "$case_dir/fork/.github/workflows/new-ci.yml"
 test "$(cat "$case_dir/fork/internal/api/dashboardspa/dist/assets/rebuilt.js")" = $'new upstream source\nfork feature'
 test -z "$(git -C "$case_dir/fork" status --porcelain)"
 before="$(git -C "$case_dir/fork" rev-parse HEAD)"

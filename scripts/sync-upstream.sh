@@ -58,6 +58,11 @@ else
       exit 1
     fi
   fi
+  # Workflow configuration belongs to this fork. Keeping its tree unchanged
+  # avoids importing upstream CI and needs only GitHub's built-in token.
+  if [[ -n "$(git ls-tree HEAD -- .github/workflows)" ]]; then
+    git restore --source=HEAD --staged --worktree -- .github/workflows
+  fi
   reject_source_conflicts
   echo 'Upstream source merged; generated dashboard files will be rebuilt.'
   if [[ "$mode" == prepare ]]; then exit 0; fi

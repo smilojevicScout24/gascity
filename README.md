@@ -249,21 +249,10 @@ cause, `SYNC_UPSTREAM_MODE=finish make sync-upstream` finishes that merge;
 
 The `Sync fork with upstream` Actions workflow runs daily at 03:17 UTC, or on
 manual dispatch. It updates the fork's default branch by default; dispatch can
-select another fork branch. It prepares the source merge first, then selects
-the merged source's Go/Node versions, rebuilds the dashboard, and runs frontend
-typechecks and City-view tests before pushing. It does not run the upstream backend CI or
-install native Go test dependencies. Runs without new upstream commits skip
-all tool setup, builds, checks, and pushing. Source conflicts or failed checks stop
-the run without a force push. The workflow does not deploy EC2.
-
-After pushing this extension, merge it into the fork's default branch (or make
-the integration branch the default), then enable Actions in the fork's Actions
-tab and run the sync workflow once manually. GitHub schedules only workflows
-on the default branch. Repository policy must allow the job's `contents: write`
-permission. The default repository `GITHUB_TOKEN` can push source-only updates;
-upstream commits that change workflow files require a repository-scoped token
-with Contents and Workflows write access in the Actions secret `FORK_SYNC_TOKEN`.
-The job checks for this before building. Tokens stay in repository secrets.
-The job also keeps inherited workflow definitions disabled on the fork, including
-new ones introduced upstream, so only this daily sync runs. No Jenkins setup
-or credential IDs are committed.
+select another fork branch. It merges upstream application source, rebuilds the
+fork's embedded visualization when updates exist, and pushes the result. The
+workflow uses GitHub's built-in token; no additional secret is required.
+The fork owns `.github/workflows/`: upstream CI/workflow changes are excluded
+from the merge, so the fork keeps its one enabled daily-sync workflow. All
+other application source updates are merged normally. Real source conflicts
+or build failures stop the run without pushing. This does not deploy EC2.
