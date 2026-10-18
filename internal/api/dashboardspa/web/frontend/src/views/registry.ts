@@ -7,9 +7,14 @@
 // the design-review checkpoint, premortem #6.
 
 import { activityView } from './modules/activity.module.js';
+import { cityView } from './modules/city.module.js';
 import { healthView } from './modules/health.module.js';
 import type { FrontendViewDescriptor } from './types.js';
 
-export const ALL_VIEWS: ReadonlyArray<FrontendViewDescriptor> = [activityView, healthView];
+export const ALL_VIEWS: ReadonlyArray<FrontendViewDescriptor> = [
+  cityView,
+  activityView,
+  healthView,
+];
 
 export type { FrontendViewDescriptor };

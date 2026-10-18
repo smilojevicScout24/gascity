@@ -1,0 +1,97 @@
+name: Sync fork with upstream
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      fork_branch:
+        description: Fork branch to update (empty uses the default branch)
+        type: string
+        default: ""
+      upstream_branch:
+        description: Upstream branch to merge
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-sync-${{ github.repository }}-${{ inputs.fork_branch || github.event.repository.default_branch }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.event.repository.fork
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      FORK_BRANCH: ${{ inputs.fork_branch || github.event.repository.default_branch }}
+      UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'main' }}
+    steps:
+      - name: Check out the fork with complete history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.FORK_BRANCH }}
+          fetch-depth: 0
+          token: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
+
+      - name: Set up Go for the repository make targets
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+
+      - name: Merge upstream without overwriting fork changes
+        id: merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/heads/$FORK_BRANCH"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/gastownhall/gascity.git
+          before=$(git rev-parse HEAD)
+          make sync-upstream
+          if [ "$before" = "$(git rev-parse HEAD)" ]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'Fork is already up to date.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node
+        if: steps.merge.outputs.changed == 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: internal/api/dashboardspa/web/package-lock.json
+
+      - name: Install native Go dependencies
+        if: steps.merge.outputs.changed == 'true'
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libicu-dev
+
+      - name: Validate the integrated dashboard and rebuild its embedded bundle
+        if: steps.merge.outputs.changed == 'true'
+        run: make dashboard-check-npm
+
+      - name: Commit the rebuilt bundle and push the validated merge
+        if: steps.merge.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git add internal/api/dashboardspa/dist
+          if ! git diff --cached --quiet; then
+            git commit -m 'build(dashboard): refresh fork bundle after upstream sync'
+          fi
+          git push origin "HEAD:refs/heads/$FORK_BRANCH"
+          echo 'Upstream merged, dashboard verified, and fork updated.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Explain an unsuccessful sync
+        if: failure()
+        run: |
+          echo 'Sync stopped. Review merge conflicts, failed checks, or repository token permissions in this run. No force push is used.' >> "$GITHUB_STEP_SUMMARY"

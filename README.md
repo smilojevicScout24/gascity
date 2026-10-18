@@ -209,3 +209,53 @@ commands (each runs the matching `bazel test` tier; see
 ## License
 
 MIT
+
+
+## Fork visualisation and upstream updates
+
+The City view at `/city/<city-name>/map` supports both Gastown and Gas City /
+Superpowers. It selects a presentation from the configured agents. The View
+selector overrides that choice (`?style=gascity` or `?style=gastown`). The native
+view displays workflow coordinators, planners, designers, implementation
+workers, reviewers and publishers; unknown agents remain visible in an Other
+agents office. Existing Gastown sprites and behaviour are preserved. Runtime
+agent identifiers remain available in the selection details and roster.
+
+Workflow artwork is separate under
+`internal/api/dashboardspa/web/frontend/src/city/workflow-sprites/`.
+`workflow-art.json` in the adjacent `city/` directory records the prompts used
+with built-in imagegen. The exported WebP files retain transparency. Activity,
+sleep and attention states come from supervisor data; decorative animation
+respects reduced-motion preferences. Work counts describe loaded task data,
+not inferred merges or invented workflow progress.
+
+To bring the current fork branch up to date:
+
+```bash
+# Add the remote once if this clone does not already have it.
+git remote add upstream https://github.com/gastownhall/gascity.git
+make sync-upstream
+make dashboard-check-npm
+```
+
+`UPSTREAM_REMOTE` and `UPSTREAM_BRANCH` override `upstream` and `main`.
+The command requires a checked-out branch and clean tracked files, merges
+without rebasing or resetting fork work, and never pushes. A conflict remains
+in the working tree for review. Commit the resolved merge and regenerated
+embedded dashboard bundle before pushing.
+
+The `Sync fork with upstream` Actions workflow runs daily at 03:17 UTC, or on
+manual dispatch. It updates the fork's default branch by default; dispatch can
+select another fork branch. It validates the integrated dashboard, commits any
+rebuilt embedded bundle, and pushes only after checks pass. Runs without new
+upstream commits skip validation and pushing. Conflicts or failed checks stop
+the run without a force push. The workflow does not deploy EC2.
+
+After pushing this extension, merge it into the fork's default branch (or make
+the integration branch the default), then enable Actions in the fork's Actions
+tab and run the sync workflow once manually. GitHub schedules only workflows
+on the default branch. Repository policy must allow the job's `contents: write`
+permission. The default repository `GITHUB_TOKEN` is used; no Jenkins setup or
+credential IDs are needed. If GitHub rejects upstream workflow-file updates,
+provide a repository-scoped token with Contents and Workflows write access as
+the optional Actions secret `FORK_SYNC_TOKEN`. Tokens stay in repository secrets.
