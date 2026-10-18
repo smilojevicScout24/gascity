@@ -4,21 +4,12 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
-    inputs:
-      fork_branch:
-        description: Fork branch to update (empty uses the default branch)
-        type: string
-        default: ""
-      upstream_branch:
-        description: Upstream branch to merge
-        type: string
-        default: main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: fork-sync-${{ github.repository }}-${{ inputs.fork_branch || github.event.repository.default_branch }}
+  group: fork-sync
   cancel-in-progress: false
 
 jobs:
@@ -26,43 +17,38 @@ jobs:
     if: github.event.repository.fork
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    permissions:
-      contents: write
     env:
-      FORK_BRANCH: ${{ inputs.fork_branch || github.event.repository.default_branch }}
-      UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'main' }}
+      FORK_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
-      - name: Check out the fork with complete history
+      - name: Check out the fork
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.FORK_BRANCH }}
-          fetch-depth: 0
-          token: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
+          fetch-depth: 1
+          fetch-tags: false
 
-      - name: Set up Go for the repository make targets
+      - name: Merge upstream application source
+        id: merge
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/gastownhall/gascity.git
+          git fetch --quiet --no-tags --unshallow origin "refs/heads/$FORK_BRANCH"
+          SYNC_UPSTREAM_MODE=prepare bash scripts/sync-upstream.sh
+          if git rev-parse --quiet --verify MERGE_HEAD >/dev/null; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'Already up to date; no build, tests, or push needed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Set up Go from the merged source
+        if: steps.merge.outputs.changed == 'true'
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
 
-      - name: Merge upstream without overwriting fork changes
-        id: merge
-        shell: bash
-        run: |
-          set -euo pipefail
-          git check-ref-format "refs/heads/$FORK_BRANCH"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git remote add upstream https://github.com/gastownhall/gascity.git
-          before=$(git rev-parse HEAD)
-          make sync-upstream
-          if [ "$before" = "$(git rev-parse HEAD)" ]; then
-            echo 'changed=false' >> "$GITHUB_OUTPUT"
-            echo 'Fork is already up to date.' >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'changed=true' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up Node
+      - name: Set up Node from the merged source
         if: steps.merge.outputs.changed == 'true'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -70,28 +56,32 @@ jobs:
           cache: npm
           cache-dependency-path: internal/api/dashboardspa/web/package-lock.json
 
-      - name: Install native Go dependencies
+      - name: Install native build dependency
         if: steps.merge.outputs.changed == 'true'
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libicu-dev
 
-      - name: Validate the integrated dashboard and rebuild its embedded bundle
+      - name: Rebuild the fork dashboard
         if: steps.merge.outputs.changed == 'true'
-        run: make dashboard-check-npm
+        run: SYNC_UPSTREAM_MODE=finish make sync-upstream
 
-      - name: Commit the rebuilt bundle and push the validated merge
+      - name: Typecheck and test the dashboard
         if: steps.merge.outputs.changed == 'true'
-        shell: bash
+        working-directory: internal/api/dashboardspa/web
         run: |
-          set -euo pipefail
-          git diff --check
-          git add internal/api/dashboardspa/dist
-          if ! git diff --cached --quiet; then
-            git commit -m 'build(dashboard): refresh fork bundle after upstream sync'
-          fi
+          npm run typecheck
+          npm run --workspace gas-city-dashboard-frontend typecheck:test
+          npm run --workspace gas-city-dashboard-frontend typecheck:e2e
+          npm run --workspace gas-city-dashboard-frontend test
+
+      - name: Build Gas City and test dashboard handlers
+        if: steps.merge.outputs.changed == 'true'
+        run: |
+          go build -o "$RUNNER_TEMP/gc" ./cmd/gc
+          "$RUNNER_TEMP/gc" version --json
+          go test ./internal/api/dashboardspa/... ./internal/api/dashboardbff/...
+
+      - name: Push only after the build and tests pass
+        if: steps.merge.outputs.changed == 'true'
+        run: |
           git push origin "HEAD:refs/heads/$FORK_BRANCH"
-          echo 'Upstream merged, dashboard verified, and fork updated.' >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Explain an unsuccessful sync
-        if: failure()
-        run: |
-          echo 'Sync stopped. Review merge conflicts, failed checks, or repository token permissions in this run. No force push is used.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Upstream synced; Gas City built and dashboard tests passed.' >> "$GITHUB_STEP_SUMMARY"

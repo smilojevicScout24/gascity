@@ -1300,7 +1300,7 @@ bazel-sync:
 	python3 tools/bazel/integration_suite.py
 
 
-## sync-upstream: fetch and merge upstream/main into the current branch (does not push)
+## sync-upstream: merge upstream source and rebuild the embedded dashboard (does not push)
 .PHONY: sync-upstream
 sync-upstream:
 	bash scripts/sync-upstream.sh
