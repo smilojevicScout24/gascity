@@ -4,6 +4,8 @@ import { deriveCity } from './model';
 import { WorkflowCity } from './WorkflowCity';
 import type { SupervisorSession } from '../supervisor/sessionReads';
 import type { SupervisorBead } from '../supervisor/beadReads';
+import type { SupervisorAgent } from '../supervisor/agentReads';
+import { spriteUrl } from './sprites';
 
 const session = (id: string, template: string): SupervisorSession => ({
   id,
@@ -21,6 +23,21 @@ const session = (id: string, template: string): SupervisorSession => ({
 
 describe('WorkflowCity', () => {
   afterEach(cleanup);
+  it('depicts configured bead maintenance dogs with their existing dog artwork', () => {
+    const model = deriveCity({
+      sessions: [],
+      agents: [
+        { name: 'bd.dog-1', pool: 'bd.dog', running: false, state: 'stopped' } as SupervisorAgent,
+      ],
+      rigs: [],
+      beads: [],
+      now: 0,
+    });
+    render(<WorkflowCity model={model} selected={null} onSelect={() => {}} />);
+    const dog = screen.getByRole('button', { name: 'bd.dog-1, asleep' });
+    expect(dog.querySelector('img')?.getAttribute('src')).toBe(spriteUrl('dog-idle'));
+    expect(dog.querySelector('.workflow-unknown')).toBeNull();
+  });
   it('renders actual workflow jobs, accessible selection, and their assigned work', () => {
     const model = deriveCity({
       sessions: [

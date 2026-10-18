@@ -348,7 +348,10 @@ describe('live-city shapes (gc 1.4)', () => {
     expect(p?.asleep).toBe(true);
     expect(p?.pose).toBe('sleep');
     expect(model.dogs.map((d) => d.label)).toEqual(['dog-1']);
-    expect(model.visitors).toHaveLength(0);
+    expect(model.visitors.map((actor) => actor.alias)).toEqual([
+      'is24-luxury-portal/sol-pre-push-review.sol-reviewer',
+    ]);
+    expect(model.visitors[0]?.asleep).toBe(true);
     expect(model.counts.awake).toBe(0);
   });
 

@@ -6,6 +6,8 @@ import type { SupervisorSession } from '../supervisor/sessionReads';
 import { CityMap, type CityFx } from './CityMap';
 import { layoutCity } from './layout';
 import { deriveCity } from './model';
+import type { SupervisorAgent } from '../supervisor/agentReads';
+import { workflowPortrait } from './sprites';
 
 const NO_FX: CityFx = {
   slinging: false,
@@ -63,6 +65,68 @@ function fixture() {
 
 describe('CityMap', () => {
   afterEach(cleanup);
+  it('links dogs beyond the map slots to the complete roster', () => {
+    const agents = Array.from({ length: 5 }, (_, i) => ({
+      name: `gastown.dog-${i + 1}`,
+      pool: 'gastown.dog',
+      running: false,
+      state: 'stopped',
+    })) as SupervisorAgent[];
+    const model = deriveCity({ sessions: [], agents, rigs: [], beads: [], now: 0 });
+    render(
+      <CityMap
+        model={model}
+        layout={layoutCity(model)}
+        fx={NO_FX}
+        selected={null}
+        onSelect={() => {}}
+        initialBeads={new Set()}
+      />,
+    );
+    expect(model.dogs).toHaveLength(5);
+    expect(screen.getAllByRole('button')).toHaveLength(3);
+    expect(screen.getByRole('link', { name: '2 more dogs in roster' }).getAttribute('href')).toBe(
+      '#city-roster',
+    );
+  });
+  it('keeps an on-demand Sol reviewer visible with a portrait among other supporting agents', () => {
+    const agents = [
+      ...Array.from({ length: 7 }, (_, i) => ({
+        name: `custom.helper-${i}`,
+        running: false,
+        state: 'stopped',
+      })),
+      {
+        name: 'project/sol-pre-push-review.sol-reviewer',
+        rig: 'project',
+        running: false,
+        state: 'stopped',
+      },
+    ] as SupervisorAgent[];
+    const model = deriveCity({ sessions: [], agents, rigs: [], beads: [], now: 0 });
+    render(
+      <CityMap
+        model={model}
+        layout={layoutCity(model)}
+        fx={NO_FX}
+        selected={null}
+        onSelect={() => {}}
+        initialBeads={new Set()}
+      />,
+    );
+    const reviewer = screen.getByRole('button', {
+      name: 'sol-pre-push-review.sol-reviewer, asleep',
+    });
+    expect(reviewer.querySelector('image')?.getAttribute('href')).toBe(
+      workflowPortrait('sol-pre-push-review.sol-reviewer'),
+    );
+    expect(model.actors).toHaveLength(agents.length);
+    expect(model.counts.awake).toBe(0);
+    expect(screen.getByText('Sol reviewer')).toBeTruthy();
+    expect(screen.getByRole('link', { name: '3 more agents in roster' }).getAttribute('href')).toBe(
+      '#city-roster',
+    );
+  });
 
   it('draws the rig district, cast and the bead a polecat is working', () => {
     const { model, layout } = fixture();

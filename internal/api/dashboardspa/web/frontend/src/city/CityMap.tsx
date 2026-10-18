@@ -17,7 +17,8 @@ import {
   type DistrictLayout,
   type Point,
 } from './layout';
-import { spriteFor, spriteUrl } from './sprites';
+import { spriteFor, spriteUrl, workflowPortrait } from './sprites';
+import { workflowRole } from './workflow';
 
 export type CitySelection = { kind: 'actor'; id: string } | { kind: 'bead'; id: string };
 
@@ -114,17 +115,25 @@ export function CityMap({ model, layout, fx, selected, onSelect, initialBeads }:
             />
           );
         })}
+        {model.dogs.length > layout.dogs.length && (
+          <a
+            href="#city-roster"
+            aria-label={`${model.dogs.length - layout.dogs.length} more dogs in roster`}
+          >
+            <text x={KENNEL.x + 130} y={HALL.y + 40} textAnchor="middle" fontSize={10}>
+              +{model.dogs.length - layout.dogs.length} dogs in roster
+            </text>
+          </a>
+        )}
         {model.visitors.slice(0, layout.visitors.length).map((v, i) => (
           <Visitor key={v.id} {...actorProps(v)} at={layout.visitors[i]!} />
         ))}
         {layout.hiddenVisitors > 0 && (
-          <text
-            x={layout.visitors[layout.visitors.length - 1]!.x + 34}
-            y={HALL.y - 14}
-            fontSize={11}
-          >
-            +{layout.hiddenVisitors}
-          </text>
+          <a href="#city-roster" aria-label={`${layout.hiddenVisitors} more agents in roster`}>
+            <text x={VIEWBOX.w - 18} y={HALL.y + 40} textAnchor="end" fontSize={10}>
+              +{layout.hiddenVisitors} in roster
+            </text>
+          </a>
         )}
         {model.deacon && <Deacon {...actorProps(model.deacon)} />}
 
@@ -501,6 +510,8 @@ function Visitor({
   onSelect: () => void;
 }) {
   const status = statusLine(actor);
+  const portrait = workflowPortrait(actor.template);
+  const label = workflowRole(actor.template)?.label ?? actor.label;
   return (
     <g
       className={`city-hit ${selected ? 'city-selected' : ''}`}
@@ -516,11 +527,15 @@ function Visitor({
         stroke="oklch(var(--rule))"
         strokeWidth={1.5}
       />
-      <text y={-16} textAnchor="middle" fontSize={11} className="city-name">
-        {actor.label.slice(0, 2).toUpperCase()}
-      </text>
-      <text y={14} textAnchor="middle" fontSize={11}>
-        {truncate(actor.label, 10)}
+      {portrait ? (
+        <image href={portrait} x={-22} y={-44} width={44} height={44} />
+      ) : (
+        <text y={-16} textAnchor="middle" fontSize={11} className="city-name">
+          {actor.label.slice(0, 2).toUpperCase()}
+        </text>
+      )}
+      <text y={14} textAnchor="middle" fontSize={portrait ? 9 : 11}>
+        {truncate(label, portrait ? 12 : 10)}
       </text>
     </g>
   );

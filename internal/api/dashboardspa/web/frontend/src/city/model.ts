@@ -155,7 +155,7 @@ export function deriveCity(input: CityInputs): CityModel {
     if (rig !== undefined) actor.rig = rig;
     return actor;
   });
-  actors.push(...stoppedPoolMembers(input.agents ?? [], live, input.rigs));
+  actors.push(...configuredMembers(input.agents ?? [], live, input.rigs));
 
   const byRole = (role: CityRole) => actors.filter((a) => a.role === role);
   const singleton = (role: CityRole) =>
@@ -201,11 +201,17 @@ export function deriveCity(input: CityInputs): CityModel {
 
   const model: CityModel = {
     dogs: byRole('dog').sort((a, b) => a.label.localeCompare(b.label)),
-    visitors: [...byRole('visitor'), ...orphans],
+    // Keep reviewers discoverable in the map's limited visitor slots. Every
+    // configured agent remains available in the complete roster below it.
+    visitors: [...byRole('visitor'), ...orphans].sort(
+      (a, b) =>
+        Number(workflowRole(b.template)?.stage === 'review') -
+        Number(workflowRole(a.template)?.stage === 'review'),
+    ),
     rigs,
     actors,
     counts: {
-      awake: actors.filter((a) => !a.asleep).length,
+      awake: live.filter((s) => !ASLEEP_STATES.has(s.state)).length,
       inFlight: input.beads.filter((b) => b.status === 'in_progress' && isWorkBead(b)).length,
       mergeQueue: rigs.reduce((n, r) => n + r.mergeQueue.length, 0),
       mergedToday: rigs.reduce((n, r) => n + r.mergedToday, 0),
@@ -291,23 +297,17 @@ function toActor(
   return actor;
 }
 
-/** Stopped polecats and dogs from the agent list, drawn asleep at their bench or kennel. */
-function stoppedPoolMembers(
+/** Supplement sessions with every configured agent, independently of presentation roles. */
+function configuredMembers(
   agents: ReadonlyArray<AgentResponse>,
   live: ReadonlyArray<SessionResponse>,
   rigs: ReadonlyArray<RigResponse>,
 ): CityActor[] {
   const liveNames = new Set(live.map((s) => s.alias).filter((a): a is string => a !== undefined));
   return agents
-    .filter((a) => !a.running && !liveNames.has(a.name))
+    .filter((a) => !liveNames.has(a.name))
     .flatMap((a) => {
       const role = roleOf(a.pool ?? a.name);
-      if (
-        role !== 'polecat' &&
-        role !== 'dog' &&
-        !(workflowRole(a.pool ?? a.name) && /(?:^|[/.])(?:gc|superpowers)\./.test(a.pool ?? a.name))
-      )
-        return [];
       const label = actorLabel(a.name, role, a.name);
       const actor: CityActor = {
         id: `agent:${a.name}`,
@@ -316,9 +316,9 @@ function stoppedPoolMembers(
         alias: a.name,
         template: a.pool ?? a.name,
         state: a.state,
-        asleep: true,
+        asleep: !a.running,
         stalled: false,
-        pose: 'sleep',
+        pose: a.running ? polecatPose(false, false, a.activity, false) : 'sleep',
         variant: variantOf(label),
       };
       const rig = resolveRigName(a.rig, rigs);

@@ -54,7 +54,21 @@ export function CityPage() {
   const closed = useCachedData(`city:closed:${rigKey}`, (signal) =>
     fetchRigBeads(rigNames, true, signal),
   );
+  const [searchParams, setSearchParams] = useSearchParams();
+  const style = searchParams.get('style') ?? 'auto';
+  const workflow =
+    style === 'gascity' ||
+    (style !== 'gastown' &&
+      hasWorkflowAgents([
+        ...(sessions.data?.items ?? []),
+        ...(agents.data?.items ?? []).map((agent) => ({
+          template: agent.pool ?? agent.name,
+          pack: agent.pack ?? '',
+        })),
+      ]));
 
+  // `now` ticks every second; minute precision is enough for "quiet Nm".
+  const modelMinute = Math.floor(now / 60_000);
   const model = useMemo(
     () =>
       deriveCity({
@@ -64,15 +78,10 @@ export function CityPage() {
         beads: beads.data?.items ?? [],
         closedBeads: closed.data?.items ?? [],
         beadRigs: new Map([...(beads.data?.rigOf ?? []), ...(closed.data?.rigOf ?? [])]),
-        now,
+        now: modelMinute * 60_000,
       }),
-    // `now` ticks every second; re-deriving on the minute is enough for "quiet Nm".
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessions.data, agents.data, rigs.data, beads.data, closed.data, Math.floor(now / 60_000)],
+    [sessions.data, agents.data, rigs.data, beads.data, closed.data, modelMinute],
   );
-  const [searchParams, setSearchParams] = useSearchParams();
-  const style = searchParams.get('style') ?? 'auto';
-  const workflow = style === 'gascity' || (style !== 'gastown' && hasWorkflowAgents(model.actors));
   const reviewing = model.actors.filter(
     (actor) => !actor.asleep && actor.bead && workflowRole(actor.template)?.stage === 'review',
   ).length;
@@ -186,7 +195,13 @@ export function CityPage() {
           {!workflow && <Legend />}
         </div>
         <aside className="space-y-8 min-w-0">
-          <Detail model={model} selected={selected} now={now} lastSeenModels={lastSeenModels} />
+          <Detail
+            model={model}
+            selected={selected}
+            now={now}
+            lastSeenModels={lastSeenModels}
+            workflow={workflow}
+          />
           <Feed items={feed} />
           <Roster model={model} onSelect={setSelected} />
         </aside>
@@ -413,11 +428,13 @@ function Detail({
   selected,
   now,
   lastSeenModels,
+  workflow,
 }: {
   model: CityModel;
   selected: CitySelection | null;
   now: number;
   lastSeenModels: ReadonlyMap<string, string>;
+  workflow: boolean;
 }) {
   const actor =
     selected?.kind === 'actor'
@@ -429,8 +446,15 @@ function Detail({
   const rows: Array<[string, string]> = actor
     ? [
         ['template', actor.template],
-        ['role', roleSummary(actor)],
-        ['session', actor.id.startsWith('agent:') ? 'not running' : actor.id],
+        ['role', roleSummary(actor, workflow ? 'gascity' : 'gastown')],
+        [
+          'session',
+          actor.id.startsWith('agent:')
+            ? actor.asleep
+              ? 'not running'
+              : 'not reported'
+            : actor.id,
+        ],
         ['state', actor.stalled ? `${actor.state} · stalled` : actor.state],
         ['activity', statusLine(actor)],
         ['model', modelLine(actor, lastSeenModels)],
@@ -525,7 +549,7 @@ function Roster({ model, onSelect }: { model: CityModel; onSelect: (s: CitySelec
       a.label.localeCompare(b.label),
   );
   return (
-    <section aria-label="Roster">
+    <section aria-label="Roster" id="city-roster">
       <header className="flex items-baseline justify-between border-b border-rule pb-2 mb-3">
         <h2 className="text-headline text-fg">Roster</h2>
         <span className="text-label uppercase tracking-wider text-fg-faint tnum">
