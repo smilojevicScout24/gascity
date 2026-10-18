@@ -251,7 +251,7 @@ The `Sync fork with upstream` Actions workflow runs daily at 03:17 UTC, or on
 manual dispatch. It updates the fork's default branch by default; dispatch can
 select another fork branch. It prepares the source merge first, then selects
 the merged source's Go/Node versions, rebuilds the dashboard, and runs frontend
-typechecks and tests before pushing. It does not run the upstream backend CI or
+typechecks and City-view tests before pushing. It does not run the upstream backend CI or
 install native Go test dependencies. Runs without new upstream commits skip
 all tool setup, builds, checks, and pushing. Source conflicts or failed checks stop
 the run without a force push. The workflow does not deploy EC2.

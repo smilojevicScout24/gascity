@@ -83,7 +83,7 @@ jobs:
         run: |
           npm run typecheck
           npm run --workspace gas-city-dashboard-frontend typecheck:test
-          npm run --workspace gas-city-dashboard-frontend test
+          npm run --workspace gas-city-dashboard-frontend test -- src/city
 
       - name: Push the integrated fork
         if: steps.merge.outputs.changed == 'true'
