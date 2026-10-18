@@ -260,7 +260,10 @@ After pushing this extension, merge it into the fork's default branch (or make
 the integration branch the default), then enable Actions in the fork's Actions
 tab and run the sync workflow once manually. GitHub schedules only workflows
 on the default branch. Repository policy must allow the job's `contents: write`
-permission. The default repository `GITHUB_TOKEN` is used; no Jenkins setup or
-credential IDs are needed. If GitHub rejects upstream workflow-file updates,
-provide a repository-scoped token with Contents and Workflows write access as
-the optional Actions secret `FORK_SYNC_TOKEN`. Tokens stay in repository secrets.
+permission. The default repository `GITHUB_TOKEN` can push source-only updates;
+upstream commits that change workflow files require a repository-scoped token
+with Contents and Workflows write access in the Actions secret `FORK_SYNC_TOKEN`.
+The job checks for this before building. Tokens stay in repository secrets.
+The job also keeps inherited workflow definitions disabled on the fork, including
+new ones introduced upstream, so only this daily sync runs. No Jenkins setup
+or credential IDs are committed.
