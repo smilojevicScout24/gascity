@@ -192,6 +192,12 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 
+sh_test(
+    name = "sync_upstream_test",
+    srcs = ["test-sync-upstream.sh"],
+    data = ["sync-upstream.sh"],
+)
+
 # --- bazel_repo_srcs (managed by tools/bazel/repo_tree.py) ---
 
 filegroup(

@@ -235,27 +235,23 @@ To bring the current fork branch up to date:
 # Add the remote once if this clone does not already have it.
 git remote add upstream https://github.com/gastownhall/gascity.git
 make sync-upstream
-make dashboard-check-npm
 ```
 
 `UPSTREAM_REMOTE` and `UPSTREAM_BRANCH` override `upstream` and `main`.
-The command requires a checked-out branch and clean tracked files, merges
-without rebasing or resetting fork work, and never pushes. A conflict remains
-in the working tree for review. Commit the resolved merge and regenerated
-embedded dashboard bundle before pushing.
+The command requires a checked-out branch and clean tracked files. It merges
+upstream application source, preserves the fork's visualization source, rebuilds
+the embedded dashboard, and commits locally without pushing. Generated bundle
+conflicts are resolved by rebuilding; real source conflicts stop for review.
 
-The `Sync fork with upstream` Actions workflow runs daily at 03:17 UTC, or on
-manual dispatch. It updates the fork's default branch by default; dispatch can
-select another fork branch. It validates the integrated dashboard, commits any
-rebuilt embedded bundle, and pushes only after checks pass. Runs without new
-upstream commits skip validation and pushing. Conflicts or failed checks stop
-the run without a force push. The workflow does not deploy EC2.
+The daily `Sync fork with upstream` workflow uses GitHub's built-in token;
+no additional secret is required. It merges upstream `main` into a temporary
+runner checkout, rebuilds the dashboard, typechecks and tests the frontend,
+builds the Gas City binary, and tests the Go dashboard handlers. Only after
+all these succeed does it push the merge to the fork's default branch. Failed
+merges, builds, or tests leave the remote branch unchanged. When already up to
+date, it skips the builds, tests, and push.
 
-After pushing this extension, merge it into the fork's default branch (or make
-the integration branch the default), then enable Actions in the fork's Actions
-tab and run the sync workflow once manually. GitHub schedules only workflows
-on the default branch. Repository policy must allow the job's `contents: write`
-permission. The default repository `GITHUB_TOKEN` is used; no Jenkins setup or
-credential IDs are needed. If GitHub rejects upstream workflow-file updates,
-provide a repository-scoped token with Contents and Workflows write access as
-the optional Actions secret `FORK_SYNC_TOKEN`. Tokens stay in repository secrets.
+The fork owns `.github/workflows/`; upstream CI configuration changes are
+excluded from the source merge. Other application source changes merge
+normally. Existing inherited workflows stay disabled; this is one scheduled
+job, not a second upstream CI installation. The job never deploys EC2.
