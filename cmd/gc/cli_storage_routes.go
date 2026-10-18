@@ -157,6 +157,14 @@ func resolveCLIStorageRoutes(cityPath string) *storageRoutes {
 	if err != nil {
 		return nil
 	}
+	// The worker-site verdict comes first, so a binding the descriptor does not
+	// attach is never opened, and never created, in the box (DES-CN §4.4,
+	// invariant 6). It is a standing refusal: work ids still resolve to work.
+	if refusal := workerSiteStorageRefusal(cityPath, cfg.EffectiveStorage()); refusal != nil {
+		fmt.Fprintln(cliStorageStderr, refusal) //nolint:errcheck // best-effort stderr
+		_, binding := storageSplitShapeOf(cfg.EffectiveStorage())
+		return refusingStorageRoutes(binding, refusal)
+	}
 	routes, err := storageBootGate(cityPath, cfg, cliStorageLogPrefix, nil, cliStorageStderr)
 	if err == nil {
 		// The one and only place a class store is given an emit target. A
@@ -171,6 +179,19 @@ func resolveCLIStorageRoutes(cityPath string) *storageRoutes {
 	fmt.Fprintln(cliStorageStderr, err) //nolint:errcheck // best-effort stderr
 	_, binding := storageSplitShapeOf(cfg.EffectiveStorage())
 	return refusingStorageRoutes(binding, err)
+}
+
+// cliStorageRoutesResolved reports whether this process has already entered
+// the funnel for cityPath, WITHOUT entering it. A caller about to open the
+// city's binding for itself uses it to stay off a root the funnel may hold.
+func cliStorageRoutesResolved(cityPath string) bool {
+	if cityPath == "" {
+		return false
+	}
+	cliStorageRoutesMu.Lock()
+	defer cliStorageRoutesMu.Unlock()
+	_, ok := cliStorageRoutesByCity[filepath.Clean(cityPath)]
+	return ok
 }
 
 // cliStorageRoutesEntryFor returns the memo slot for one city, creating it under

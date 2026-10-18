@@ -48,7 +48,17 @@ func sessionCurrentClaimFrontDoor() (*session.Store, error) {
 // reason). SetCurrentClaim also compare-and-skips, so the per-tick adoption
 // re-run issues no write once the value is current.
 func hookStampSessionCurrentClaim(sessionID, beadID string) error {
-	sessFront, err := sessionCurrentClaimFrontDoor()
+	return stampSessionCurrentClaimVia(sessionCurrentClaimFrontDoor, sessionID, beadID)
+}
+
+// sessionFrontGetter yields the session front door a session seam reads or
+// writes through: sessionCurrentClaimFrontDoor opens one per call, a
+// hookCity's sessionFront shares one across an invocation.
+type sessionFrontGetter func() (*session.Store, error)
+
+// stampSessionCurrentClaimVia is hookStampSessionCurrentClaim through front.
+func stampSessionCurrentClaimVia(front sessionFrontGetter, sessionID, beadID string) error {
+	sessFront, err := front()
 	if err != nil {
 		return err
 	}
@@ -60,8 +70,8 @@ func hookStampSessionCurrentClaim(sessionID, beadID string) error {
 // already draining. It is the production implementation of the
 // hookClaimOps.DrainPending seam — the F-D claim fence's only input.
 //
-// The SESSION ROW is the source, not provider meta. `gc runtime drain-check`
-// reads GC_DRAIN, which reconciler-tracked drains never set, so a provider-meta
+// The SESSION ROW is the source, not provider meta. Provider meta carries only
+// GC_DRAIN, which reconciler-tracked drains never set, so a provider-meta
 // probe would miss the whole keyed population this fence exists for. It reads
 // through the same routed front door the claim back-channel writes through, so a
 // [beads.classes.sessions] relocation reaches the fence too.
@@ -73,11 +83,16 @@ func hookStampSessionCurrentClaim(sessionID, beadID string) error {
 // it. Errors are returned rather than swallowed: the caller fails OPEN on them,
 // and it can only make that choice if it can see them.
 func hookSessionDrainPending(sessionID string) (bool, error) {
+	return sessionDrainPendingVia(sessionCurrentClaimFrontDoor, sessionID)
+}
+
+// sessionDrainPendingVia is hookSessionDrainPending through front.
+func sessionDrainPendingVia(front sessionFrontGetter, sessionID string) (bool, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return false, nil
 	}
-	sessFront, err := sessionCurrentClaimFrontDoor()
+	sessFront, err := front()
 	if err != nil {
 		return false, err
 	}
@@ -106,10 +121,15 @@ func hookSessionDrainPending(sessionID string) (bool, error) {
 // execution identity. Every failure yields "" -- an unset gc.work_dir is the
 // honest outcome, and the caller stamps nothing rather than guessing a path.
 func hookResolveSessionWorkDir(sessionID string) string {
+	return resolveSessionWorkDirVia(sessionCurrentClaimFrontDoor, sessionID)
+}
+
+// resolveSessionWorkDirVia is hookResolveSessionWorkDir through front.
+func resolveSessionWorkDirVia(front sessionFrontGetter, sessionID string) string {
 	if strings.TrimSpace(sessionID) == "" {
 		return ""
 	}
-	sessFront, err := sessionCurrentClaimFrontDoor()
+	sessFront, err := front()
 	if err != nil {
 		// Each failure below returns the same "" as a session that simply has no
 		// stampable checkout, so without naming the step a lookup fault is
