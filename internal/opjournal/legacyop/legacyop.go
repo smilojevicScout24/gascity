@@ -139,6 +139,12 @@ type Admission struct {
 	Cached any
 	// Entry is the in-flight entry this request holds, or nil.
 	Entry *Entry
+	// Unrecordable is the journal's refusal of a request auto runs
+	// unrecorded because the journal rejects the request itself (its key,
+	// or its payload: too large, not valid UTF-8, or empty), so the caller
+	// can say why; nil otherwise, a store failure included (Degraded hears
+	// of that).
+	Unrecordable error
 
 	rec   *Recorder
 	store *opjournal.Store
@@ -384,7 +390,7 @@ func (r *Recorder) unrecordable(req Request, key string, minted bool, err error)
 		return nil, err
 	}
 	r.count(req.Kind, StageAdmit, ResultUnrecorded, reason)
-	return &Admission{Decision: Execute, Key: key, Minted: minted, rec: r}, nil
+	return &Admission{Decision: Execute, Key: key, Minted: minted, Unrecordable: err, rec: r}, nil
 }
 
 // cannotRecord answers a request the store cannot record: degrade, then run
@@ -400,14 +406,23 @@ func (r *Recorder) cannotRecord(kind opjournal.Kind, key string, minted bool, st
 }
 
 // Unrecorded is an Execute admission for a request the caller knows it cannot
-// record (an unmaterialized named target, a session with no generation),
-// counted under reason. The caller decides that only in auto; require
-// resolves the cause first or refuses.
+// record (an unmaterialized named target, a session with no generation or
+// whose row cannot be read), counted under reason. The caller decides that
+// only in auto; require resolves the cause first or refuses.
 func (r *Recorder) Unrecorded(kind opjournal.Kind, key, reason string) *Admission {
 	if r.recording() {
 		r.count(kind, StageAdmit, ResultUnrecorded, reason)
 	}
 	return &Admission{Decision: Execute, Key: key, rec: r}
+}
+
+// Refused counts a request the caller refuses in require because it knows it
+// cannot record it (Unrecorded's causes), under reason, as Admit counts a
+// require refusal. It counts nothing in another mode.
+func (r *Recorder) Refused(kind opjournal.Kind, reason string) {
+	if r.Mode == gate.Require {
+		r.count(kind, StageAdmit, ResultRefused, reason)
+	}
 }
 
 // Accept stores the request's answer in its in-flight entry, so a same-key

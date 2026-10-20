@@ -389,6 +389,9 @@ func TestLaneExecDeliveryResultMapping(t *testing.T) {
 	delivered := func(ack opjournal.AckKind, degradation string) opjournal.DeliveryResult {
 		return opjournal.Delivered{Record: opjournal.DeliveryRecord{At: at, Ack: ack}, Via: laneViaLive, Degradation: degradation}
 	}
+	steered := func(ack opjournal.AckKind, degradation string) opjournal.DeliveryResult {
+		return opjournal.Delivered{Record: opjournal.DeliveryRecord{At: at, Ack: ack}, Via: laneViaSteer, Degradation: degradation}
+	}
 	someErr := errors.New("tmux exploded")
 	permissionPrompt := fmt.Errorf("%w: session %q is waiting on a permission prompt (Edit file, request tmux-1); answer it with respond (approve or deny) before sending text",
 		runtime.ErrPendingInteraction, "s")
@@ -397,6 +400,7 @@ func TestLaneExecDeliveryResultMapping(t *testing.T) {
 		res        worker.NudgeResult
 		err        error
 		unfenced   bool
+		steer      bool
 		want       opjournal.DeliveryResult
 		transient  bool
 		wantUnknwn bool
@@ -406,11 +410,16 @@ func TestLaneExecDeliveryResultMapping(t *testing.T) {
 		{name: "delivered with no token", res: worker.NudgeResult{Delivered: true}, unfenced: true, want: delivered(opjournal.AckDelivered, opjournal.DegradationUnfencedDelivery)},
 		{name: "unobserved", err: fmt.Errorf("submit: %w", runtime.ErrNudgeDeliveredUnobserved), want: delivered(opjournal.AckDeliveredUnobserved, laneDegradationTurnStartUnobserved)},
 		{name: "unobserved and unfenced", res: worker.NudgeResult{Unfenced: true}, err: runtime.ErrNudgeDeliveredUnobserved, want: delivered(opjournal.AckDeliveredUnobserved, opjournal.DegradationUnfencedDelivery)},
+		{name: "steer delivered", res: worker.NudgeResult{Delivered: true}, steer: true, want: steered(opjournal.AckDelivered, "")},
+		{name: "steer unobserved", err: runtime.ErrNudgeDeliveredUnobserved, steer: true, want: steered(opjournal.AckDeliveredUnobserved, laneDegradationTurnStartUnobserved)},
+		{name: "steer unobserved and unfenced", err: runtime.ErrNudgeDeliveredUnobserved, unfenced: true, steer: true, want: steered(opjournal.AckDeliveredUnobserved, opjournal.DegradationUnfencedDelivery)},
 		{name: "not delivered", res: worker.NudgeResult{}, transient: true},
 		{name: "pending interaction", err: fmt.Errorf("x: %w", runtime.ErrNudgeRefusedPendingInteraction), transient: true},
 		{name: "tmux permission prompt", err: permissionPrompt, transient: true},
 		{name: "tmux submit unconfirmed", err: fmt.Errorf("%w: session %q", tmux.ErrNudgeSubmitUnconfirmed, "s"), wantUnknwn: true},
 		{name: "tmux re-send refused after a submit", err: fmt.Errorf("%w: session %q: not re-sent: %s", tmux.ErrNudgeSubmitUnconfirmed, "s", permissionPrompt.Error()), wantUnknwn: true},
+		{name: "steer submit unconfirmed", err: fmt.Errorf("%w: session %q", tmux.ErrNudgeSubmitUnconfirmed, "s"), steer: true, wantUnknwn: true},
+		{name: "steer on a tmux permission prompt", err: permissionPrompt, steer: true, transient: true},
 		{name: "fence miss", err: &runtime.FenceMismatchError{Session: "s", Found: "absent"}, transient: true},
 		{name: "runtime unavailable", err: fmt.Errorf("x: %w", runtime.ErrRuntimeUnavailable), transient: true},
 		{name: "partial fence miss", err: &runtime.FenceMismatchError{Session: "s", Found: "dead", Partial: true}, wantUnknwn: true},
@@ -423,7 +432,7 @@ func TestLaneExecDeliveryResultMapping(t *testing.T) {
 		{name: "anything else may have delivered", err: someErr, wantUnknwn: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := laneDeliveryResult(tc.res, tc.err, at, tc.unfenced)
+			got := laneDeliveryResult(tc.res, tc.err, at, tc.unfenced, tc.steer)
 			switch {
 			case tc.transient:
 				nd, ok := got.(opjournal.NotDelivered)
@@ -611,8 +620,9 @@ func TestLaneExecUnconfirmedSubmitMayHaveDelivered(t *testing.T) {
 	}
 }
 
-// TestLaneExecProtocolModeWaitsNotLive proves a protocol-mode runtime is not
-// live until OJ-12b: content waits not_live and nothing is typed.
+// TestLaneExecProtocolModeWaitsNotLive proves a protocol-mode runtime that
+// does not report its turns has no boundary to deliver at, so it is not
+// live: content waits not_live and nothing is typed.
 func TestLaneExecProtocolModeWaitsNotLive(t *testing.T) {
 	f := newLaneFixture(t)
 	f.sp.TurnInterruptModeValue = runtime.TurnInterruptProtocol
@@ -951,6 +961,154 @@ func TestLaneExecIncarnationMismatchBlocksContent(t *testing.T) {
 	if len(f.nudges()) != 0 || f.get(t, st, op.ID).Status != opjournal.StatusSubmitted {
 		t.Fatal("a stale incarnation received text")
 	}
+}
+
+// TestLaneExecAdmitsTheDrainNoticeIntoADrainingRow pins the executor's half
+// of I7's exemption: a draining row's probe blocks content as draining but
+// admits the drain reminder's notice class, so the lane delivers that notice
+// and nothing else; a stale incarnation blocks the notice too.
+func TestLaneExecAdmitsTheDrainNoticeIntoADrainingRow(t *testing.T) {
+	draining := func(meta map[string]string) {
+		meta["state"] = string(session.StateDraining)
+		meta["state_reason"] = session.DrainAckStopPendingReason
+	}
+	drainNotice := func(r *opjournal.Request) {
+		r.Producer = opjournal.Producer{Principal: laneDrainNoticeClass.Principal, Actor: opjournal.ActorController}
+		r.Policy.Message = opjournal.MessagePolicy{Role: opjournal.RoleNotice, When: opjournal.WhenBoundary, Wake: opjournal.WakeLiveOnly}
+	}
+	t.Run("delivers the drain notice, holds the rest", func(t *testing.T) {
+		f := newLaneFixture(t, draining)
+		st := f.laneStore(t)
+		prompt := f.propose(t, st, f.msg("prompt", opjournal.RolePrompt, "work"))
+		other := f.propose(t, st, f.msg("other", opjournal.RoleNotice, "claim", func(r *opjournal.Request) {
+			drainNotice(r)
+			r.Producer.Principal = plannerNoticePrincipalPrefix + "idle-claim-nudge"
+		}))
+		warmBind := f.propose(t, st, f.msg("warm", opjournal.RoleNotice, "bind", func(r *opjournal.Request) {
+			drainNotice(r)
+			r.Producer.Principal = plannerNoticePrincipalPrefix + warmBindNoticePurpose
+		}))
+		drainPrompt := f.propose(t, st, f.msg("drain-prompt", opjournal.RolePrompt, "work", func(r *opjournal.Request) {
+			drainNotice(r)
+			r.Policy.Message.Role = opjournal.RolePrompt
+		}))
+		notice := f.propose(t, st, f.msg("drain", opjournal.RoleNotice, "ack your drain", drainNotice))
+		for range 3 {
+			if _, err := f.pass(context.Background(), t, f.lane(t, st), st, nil); err != nil {
+				t.Fatalf("Pass: %v", err)
+			}
+		}
+		if got := f.get(t, st, notice.ID); got.Status != opjournal.StatusClosed || got.Outcome.Arm != opjournal.ArmSucceeded {
+			t.Fatalf("drain notice = %s %+v, want closed succeeded", got.Status, got.Outcome)
+		}
+		for _, id := range []string{prompt.ID, other.ID, warmBind.ID, drainPrompt.ID} {
+			if got := f.get(t, st, id); got.Status != opjournal.StatusSubmitted {
+				t.Fatalf("op %s = %s, want still submitted behind the draining block", id, got.Status)
+			}
+		}
+		nudges := f.nudges()
+		if len(nudges) != 1 || !strings.Contains(nudges[0].Message, "ack your drain") {
+			t.Fatalf("nudges = %+v, want only the drain notice", nudges)
+		}
+	})
+	t.Run("probe admits only the drain notice class", func(t *testing.T) {
+		for name, opts := range map[string][]laneFixtureOpt{
+			"ready row":    nil,
+			"draining row": {draining},
+		} {
+			f := newLaneFixture(t, opts...)
+			st := f.laneStore(t)
+			v, info := f.view(t)
+			p, err := newConversationLaneExec(f.deps(st), info).Probe(context.Background(), v)
+			if err != nil {
+				t.Fatalf("%s: Probe: %v", name, err)
+			}
+			var want []opjournal.ContentClass
+			if name == "draining row" {
+				want = []opjournal.ContentClass{laneDrainNoticeClass}
+			}
+			if !slices.Equal(p.ContentAdmit, want) {
+				t.Fatalf("%s: ContentAdmit = %+v, want %+v", name, p.ContentAdmit, want)
+			}
+		}
+	})
+	// A draining row with a later reason in the gate's order holds the drain
+	// notice too: only "draining" is exempt.
+	for name, later := range map[string]laneFixtureOpt{
+		"idle stop latch":   func(meta map[string]string) { meta["sleep_intent"] = "idle-stop-pending" },
+		"restart requested": func(meta map[string]string) { meta["restart_requested"] = "true" },
+		"reset pending":     func(meta map[string]string) { meta["continuation_reset_pending"] = "true" },
+		"create claim":      func(meta map[string]string) { meta["pending_create_claim"] = "true" },
+	} {
+		t.Run("draining row, "+name, func(t *testing.T) {
+			f := newLaneFixture(t, draining, later)
+			st := f.laneStore(t)
+			v, info := f.view(t)
+			p, err := newConversationLaneExec(f.deps(st), info).Probe(context.Background(), v)
+			if err != nil || p.ContentBlock == "" || len(p.ContentAdmit) != 0 {
+				t.Fatalf("Probe = block %q admit %+v, %v; want a block that admits nothing", p.ContentBlock, p.ContentAdmit, err)
+			}
+			notice := f.propose(t, st, f.msg("drain", opjournal.RoleNotice, "ack your drain", drainNotice))
+			res, err := f.pass(context.Background(), t, f.lane(t, st), st, nil)
+			if err != nil || res.Took != opjournal.TakeNone || len(res.Waits) != 1 || res.Waits[0].Reason != opjournal.WaitContentBlock {
+				t.Fatalf("Pass = %+v, %v; want a content_block wait", res, err)
+			}
+			if len(f.nudges()) != 0 || f.get(t, st, notice.ID).Status != opjournal.StatusSubmitted {
+				t.Fatal("the drain notice passed a reason other than draining")
+			}
+		})
+	}
+	t.Run("stale incarnation", func(t *testing.T) {
+		f := newLaneFixture(t, draining)
+		if err := f.sp.SetMeta(f.name, "GC_SESSION_ID", "gc-someone-else"); err != nil {
+			t.Fatal(err)
+		}
+		st := f.laneStore(t)
+		f.propose(t, st, f.msg("drain", opjournal.RoleNotice, "ack your drain", drainNotice))
+		res, err := f.pass(context.Background(), t, f.lane(t, st), st, nil)
+		if err != nil || res.Took != opjournal.TakeNone || len(res.Waits) != 1 || res.Waits[0].Reason != opjournal.WaitContentBlock {
+			t.Fatalf("Pass = %+v, %v; want a content_block wait", res, err)
+		}
+		if len(f.nudges()) != 0 {
+			t.Fatal("a stale incarnation received the drain notice")
+		}
+	})
+	// A hold blocks a consume only off a running runtime (HoldVerdict), so a
+	// held draining row is one whose runtime has stopped.
+	t.Run("held draining row", func(t *testing.T) {
+		f := newLaneFixture(t, draining, func(meta map[string]string) {
+			meta["sleep_intent"] = string(session.SleepReasonUserHold)
+			meta["held_until"] = laneT0.Add(time.Hour).Format(time.RFC3339)
+		})
+		if err := f.sp.Stop(f.name); err != nil {
+			t.Fatal(err)
+		}
+		st := f.laneStore(t)
+		f.propose(t, st, f.msg("drain", opjournal.RoleNotice, "ack your drain", drainNotice))
+		res, err := f.pass(context.Background(), t, f.lane(t, st), st, nil)
+		if err != nil || res.Took != opjournal.TakeNone || res.Wake || len(res.Waits) != 1 || res.Waits[0].Reason != opjournal.WaitContentBlock {
+			t.Fatalf("Pass = %+v, %v; want a content_block wait and no wake", res, err)
+		}
+		if len(f.nudges()) != 0 {
+			t.Fatal("a held row received the drain notice")
+		}
+	})
+	t.Run("kill pending", func(t *testing.T) {
+		f := newLaneFixture(t, func(meta map[string]string) {
+			meta["state"] = string(session.StateAsleep)
+			meta["state_reason"] = session.KillPendingReason
+			meta["sleep_reason"] = string(session.SleepReasonKilled)
+			meta["slept_at"] = laneT0.Format(time.RFC3339)
+		})
+		st := f.laneStore(t)
+		f.propose(t, st, f.msg("drain", opjournal.RoleNotice, "ack your drain", drainNotice))
+		res, err := f.pass(context.Background(), t, f.lane(t, st), st, nil)
+		// The kill's asleep row is dormant to the lane before the gate is
+		// asked; either way the notice waits.
+		if err != nil || res.Took != opjournal.TakeNone || len(res.Waits) != 1 || len(f.nudges()) != 0 {
+			t.Fatalf("Pass = %+v, %v; want the drain notice to wait", res, err)
+		}
+	})
 }
 
 // laneSeamCounts counts the executor's handle and idle calls.
