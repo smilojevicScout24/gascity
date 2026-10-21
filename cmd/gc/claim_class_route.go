@@ -283,6 +283,16 @@ func claimRouteTopology(bindings []storeref.ClassBinding, refused error) storere
 	return assembleResidencyTopology(nil, newUnprobedWorkResidual(), nil, bindings, refused)
 }
 
+// hookClaimClassesRelocated reports whether a class-route resolution found a
+// city that relocates its coordination classes: a route opened, or a binding
+// that cannot claim, which degrades the route to nil (hookClaimRouteVerdict)
+// but still holds the relocated beads. The started key must not take a
+// degraded city's leg for an adoption's proven residence unless its readback
+// found the bead there (hookStartedKeyFor).
+func hookClaimClassesRelocated(opened *hookClaimClassRoute, err error) bool {
+	return opened != nil || errors.Is(err, errClaimRouteBindingCannotClaim)
+}
+
 // hookClaimRouteVerdict turns one class-route resolution into the claim ops the
 // invocation runs with, and reports whether `gc hook --claim` may proceed.
 //
@@ -773,6 +783,19 @@ func classRoutedHookClaimOps(ops hookClaimOps, route *hookClaimClassRoute) hookC
 			return
 		}
 		route.emitExecutionStepStarted(step)
+	}
+
+	// The workflow stop gate reads a step's ancestry, and closes a stranded
+	// step, in the ledger the step lives in. Like the emission above it routes
+	// on the MEMO alone: before a claim nothing is known resident, so a graph
+	// step's pre-claim read finds nothing in the work store and fails open, and
+	// the post-claim re-check — after the route memoized the step — reads the
+	// binding.
+	ops.WorkflowStore = func(ctx context.Context, dir string, env []string, beadID, actor string) beads.Store {
+		if route.knownResident(beadID) {
+			return route.class
+		}
+		return base.WorkflowStore(ctx, dir, env, beadID, actor)
 	}
 
 	return ops

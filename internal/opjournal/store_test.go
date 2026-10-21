@@ -57,7 +57,8 @@ func assertOnlyKeyedLists(t *testing.T, rec *beadstest.OpRecordingStore) {
 		legacyKeyed := q.Label == LabelOp && len(q.Metadata) == 1 && q.Metadata[keyStatus] == string(StatusSubmitted)
 		laneScanKeyed := q.Label == LabelOp && len(q.Metadata) == 2 && q.Metadata[keyExecutor] == string(ExecutorLane) && q.Metadata[keyStatus] != ""
 		openLaneKeyed := q.Label == "" && len(q.Metadata) == 2 && q.Metadata[keyOpen] != "" && q.Metadata[keyExecutor] == string(ExecutorLane)
-		if !openKeyed && !legacyKeyed && !laneScanKeyed && !openLaneKeyed {
+		interruptsKeyed := strings.HasPrefix(q.Label, labelOpConvPrefix) && len(q.Metadata) == 1 && q.Metadata[keyKind] == string(KindInterrupt) && q.Limit > 0
+		if !openKeyed && !legacyKeyed && !laneScanKeyed && !openLaneKeyed && !interruptsKeyed {
 			t.Errorf("unkeyed list %+v from %v", q, op.Caller)
 		}
 		for _, req := range beads.NativeListPlan(op.Query) {
@@ -303,6 +304,36 @@ func TestProposeKeyReuse(t *testing.T) {
 	}
 	if h.revision(t, first.ID) != rev {
 		t.Fatal("key reuse wrote the row")
+	}
+}
+
+// A close takes an optional payload (the API's close?delete=true carries
+// {"delete":true}) and the digest covers it: under one key, a close with the
+// payload and one without are different requests, each direction
+// ErrKeyReuse, nothing written.
+func TestProposeCloseOptionalPayload(t *testing.T) {
+	h := newHarness(t)
+	plain := h.propose(t, lifecycleReq(KindClose, "c1"))
+	deleting := lifecycleReq(KindClose, "c2")
+	deleting.Payload = `{"delete":true}`
+	withPayload := h.propose(t, deleting)
+	if plain.Payload != "" || withPayload.Payload != deleting.Payload || plain.PayloadDigest == withPayload.PayloadDigest {
+		t.Fatalf("plain close %q digest %s, deleting close %q digest %s; want the payload kept and the digests apart",
+			plain.Payload, plain.PayloadDigest, withPayload.Payload, withPayload.PayloadDigest)
+	}
+	revs := map[string]int64{plain.ID: h.revision(t, plain.ID), withPayload.ID: h.revision(t, withPayload.ID)}
+	flipped := lifecycleReq(KindClose, "c1")
+	flipped.Payload = deleting.Payload
+	if _, _, err := h.store.Propose(flipped); !errors.Is(err, ErrKeyReuse) {
+		t.Fatalf("Propose(c1 with the payload) = %v, want ErrKeyReuse", err)
+	}
+	if _, _, err := h.store.Propose(lifecycleReq(KindClose, "c2")); !errors.Is(err, ErrKeyReuse) {
+		t.Fatalf("Propose(c2 without the payload) = %v, want ErrKeyReuse", err)
+	}
+	for id, rev := range revs {
+		if h.revision(t, id) != rev {
+			t.Fatalf("key reuse wrote op %s", id)
+		}
 	}
 }
 

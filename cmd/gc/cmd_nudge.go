@@ -708,10 +708,13 @@ func cmdNudgeDrainWithFormat(args []string, inject bool, hookFormat string, stdo
 	var laneConv, laneCity string
 	var laneDue bool
 	var lane hookLaneOutcome
+	// laneRows are the journal rows the pass wrote, rung with the drain's
+	// last doorbell rather than as the pass writes them.
+	var laneRows *journalRingQueue
 	if inject {
 		// Registered first so it runs last: after the fallback hook context
 		// below and after every ack and stamp of the drain.
-		defer func() { hookLaneRing(laneCity, laneConv, lane) }()
+		defer func() { hookLaneRing(laneCity, laneConv, lane, laneRows) }()
 		// Read the provider hook input once (UserPromptSubmit JSON on stdin,
 		// pipe-only — see readHookStdin) and build the shared inject prefix:
 		// the clock line plus, when context pressure crosses its threshold,
@@ -820,6 +823,7 @@ func cmdNudgeDrainWithFormat(args []string, inject bool, hookFormat string, stdo
 		}
 		laneCity = target.cityPath
 		sessions := hookLaneSessionStore(target.cityPath, target.cfg, stderr)
+		laneRows = deferJournalRings(sessions)
 		return hookDrainLane(sessions, laneConv, laneDue, hookInput, legacy, hookLaneTextRoom(injectPrefix, out, wispExtra), func(laneText string) error {
 			emittedHookContext = true
 			return writeProviderHookContextForEvent(stdout, hookFormat, "UserPromptSubmit", injectPrefix+out+laneText+wispExtra)
@@ -843,6 +847,16 @@ func cmdNudgeDrainWithFormat(args []string, inject bool, hookFormat string, stdo
 		}
 		fmt.Fprintf(stderr, "gc nudge drain: %v\n", err) //nolint:errcheck
 		return 1
+	}
+	// A deferred user submit is the user's prompt, which hook output cannot
+	// deliver: it would reach the agent as context. Leave it for the poller,
+	// which types it (tryDeliverQueuedNudgesByPoller).
+	var submits []queuedNudge
+	items, submits = splitQueuedUserSubmits(items)
+	if len(submits) > 0 {
+		if err := releaseQueuedNudgeClaims(target.cityPath, queuedNudgeIDs(submits)); err != nil {
+			fmt.Fprintf(stderr, "gc nudge drain: leaving deferred submits for the poller: %v; their lease expiry returns them\n", err) //nolint:errcheck
+		}
 	}
 	if len(items) == 0 {
 		if inject {
@@ -1254,8 +1268,13 @@ type sessionNudgeResult struct {
 // result before it reports: delivered, queued (succeeded{via:
 // legacy.queued}), or refused. A same-key rerun replays the first run's
 // outcome without delivering again. The delivered text is the message,
-// unchanged in every ops.content mode.
+// unchanged in every ops.content mode. When [ops] authoritative lists message
+// and a lane host can type into the session, the nudge is a conversation-lane
+// op instead (deliverSessionNudgeLane), which ops.content does not govern.
 func deliverSessionNudgeKeyed(target nudgeTarget, store beads.Store, sp runtime.Provider, message string, mode nudgeDeliveryMode, key string, jsonOutput bool, stdout, stderr io.Writer) int {
+	if handled, code := deliverSessionNudgeLane(target, store, sp, message, mode, key, jsonOutput, stdout, stderr); handled {
+		return code
+	}
 	op, start := startSessionNudgeOp(target, store, message, mode, key, jsonOutput, stdout, stderr)
 	switch start {
 	case cliOpRefused:
@@ -1395,6 +1414,11 @@ func deliverSessionNudgeLegacy(target nudgeTarget, store beads.Store, sp runtime
 			// The prompt appeared between the probe above and delivery; the
 			// runtime refused to type into it.
 			return refuseOrQueueNudgeBehindPendingInteraction(target, store, sp, message, mode, err.Error())
+		}
+		if errors.Is(err, runtime.ErrSessionBusy) {
+			// The runtime typed nothing rather than interrupt the session's
+			// running turn; the queue delivers it at the next idle boundary.
+			return queueSessionNudgeWithWorker(target, store, sp, message, worker.NudgeUndeliveredNoIdleBoundary)
 		}
 		return sessionNudgeResult{}, err
 	}
@@ -2058,25 +2082,33 @@ var errMessageOpRefused = errors.New("the op journal refused the request before 
 // checks nothing and opens no op store.
 func resolveMessageOpTarget(identifier string, req cliOpRequest, warningWriter ...io.Writer) (nudgeTarget, error) {
 	return resolveNudgeTargetAfter(identifier, false, func(cityPath string, cfg *config.City, store beads.NudgesStore) error {
-		if onWorkerSite(cityPath) {
-			// A worker site records no op (sendMailNotifyWithOp records only
-			// the recipient's wake), so the journal has nothing to refuse.
-			return nil
-		}
-		// The op the verb starts once its target resolves prints the gate's
-		// warnings; this one only refuses.
-		stderr := req.stderr
-		req.stderr = io.Discard
-		if store.Store == nil {
-			req.unrecordable = legacyop.ReasonStoreUnavailable
-		}
-		op := newCLIOp(cfg, cliSessionStore(store.Store, cfg, cityPath), req)
-		op.req.stderr = stderr
-		if !op.preflight() {
-			return errMessageOpRefused
-		}
-		return nil
+		return messageOpPreflight(cityPath, cfg, store, req)
 	}, warningWriter...)
+}
+
+// messageOpPreflight is resolveMessageOpTarget's check over the loaded
+// config and the opened nudges store: under require, whether the op journal
+// can record req (cliOp.preflight), answering errMessageOpRefused, the
+// refusal reported, when it cannot. A worker site checks nothing.
+func messageOpPreflight(cityPath string, cfg *config.City, store beads.NudgesStore, req cliOpRequest) error {
+	if onWorkerSite(cityPath) {
+		// A worker site records no op (sendMailNotifyWithOp records only
+		// the recipient's wake), so the journal has nothing to refuse.
+		return nil
+	}
+	// The op the verb starts once its target resolves prints the gate's
+	// warnings; this one only refuses.
+	stderr := req.stderr
+	req.stderr = io.Discard
+	if store.Store == nil {
+		req.unrecordable = legacyop.ReasonStoreUnavailable
+	}
+	op := newCLIOp(cfg, cliSessionStore(store.Store, cfg, cityPath), req)
+	op.req.stderr = stderr
+	if !op.preflight() {
+		return errMessageOpRefused
+	}
+	return nil
 }
 
 // resolveNudgeTargetInStore is resolveNudgeTargetPreferringHookIdentity over a
@@ -2332,10 +2364,23 @@ func tryDeliverQueuedNudgesByPoller(target nudgeTarget, store, sessStore beads.S
 	if len(items) == 0 {
 		return false, bookkeepErr
 	}
+	// One delivery per pass: a deferred user submit alone, or the reminders
+	// queued ahead of the next one. The rest waits for a later pass.
+	items, later := nextQueuedDeliveryGroup(items)
+	if len(later) > 0 {
+		if err := deferQueuedNudgesToLaterPass(target.cityPath, later); err != nil {
+			relErr := releaseQueuedNudgeClaims(target.cityPath, queuedNudgeIDs(items))
+			return false, errors.Join(bookkeepErr, err, relErr)
+		}
+	}
 	var msg string
-	if target.sessionTransport() == "acp" {
+	switch {
+	case isQueuedUserSubmit(items[0]):
+		// The user's prompt, as the user wrote it: never a reminder.
+		msg = items[0].Message
+	case target.sessionTransport() == "acp":
 		msg = formatNudgeRuntimeMessage(items)
-	} else {
+	default:
 		msg = formatNudgeInjectOutput(items)
 	}
 	handle, err := workerHandleForNudgeTarget(target, handleSessStore, sp)
@@ -2353,6 +2398,12 @@ func tryDeliverQueuedNudgesByPoller(target nudgeTarget, store, sessStore beads.S
 	if err != nil {
 		telemetry.RecordNudge(context.Background(), target.agentKey(), err)
 		if retryAt, released := queuedNudgeReleaseAfter(err, time.Now()); released {
+			if errors.Is(err, runtime.ErrSessionBusy) && nudgeWarningWriter != nil {
+				// Charged no attempt, so nothing else records that this
+				// delivery keeps waiting on a turn the runtime will not interrupt.
+				fmt.Fprintf(nudgeWarningWriter, "gc nudge: %s: %d queued item(s) %s deferred, retry at %s: %v\n", //nolint:errcheck // best-effort warning
+					target.agentKey(), len(items), strings.Join(queuedNudgeIDs(items), ","), retryAt.UTC().Format(time.RFC3339), err)
+			}
 			if recErr := releaseQueuedNudgeClaimsUntil(target.cityPath, queuedNudgeIDs(items), retryAt); recErr != nil {
 				return false, errors.Join(bookkeepErr, recErr)
 			}
@@ -2809,6 +2860,53 @@ func newNudgePollerCommand(exe string, environ []string, cityPath, sessionName, 
 	return cmd
 }
 
+// isQueuedUserSubmit reports whether item is a user's submit the session
+// layer queued (nudgequeue.SourceSubmit), not a nudge.
+func isQueuedUserSubmit(item queuedNudge) bool {
+	return item.Source == nudgequeue.SourceSubmit
+}
+
+// splitQueuedUserSubmits separates the deferred user submits in items from
+// the nudges, keeping each side's order.
+func splitQueuedUserSubmits(items []queuedNudge) (nudges, submits []queuedNudge) {
+	for _, item := range items {
+		if isQueuedUserSubmit(item) {
+			submits = append(submits, item)
+		} else {
+			nudges = append(nudges, item)
+		}
+	}
+	return nudges, submits
+}
+
+// nextQueuedDeliveryGroup splits a claimed batch, in queue order, into what
+// one delivery carries and what waits. A deferred user submit goes out alone,
+// as the user's prompt; nudges go out together, up to the next submit, as one
+// reminder. Nothing queued after a submit is delivered ahead of it.
+func nextQueuedDeliveryGroup(items []queuedNudge) (group, later []queuedNudge) {
+	if len(items) == 0 || isQueuedUserSubmit(items[0]) {
+		return items[:min(len(items), 1)], items[min(len(items), 1):]
+	}
+	n := 1
+	for n < len(items) && !isQueuedUserSubmit(items[n]) {
+		n++
+	}
+	return items[:n], items[n:]
+}
+
+// deferQueuedNudgesToLaterPass returns claimed items this pass does not
+// deliver to pending, first moving them onto a new delivery key: the key they
+// were claimed under belongs to this pass's delivery, and a runtime that
+// deduplicates by key would answer them with its receipt (see
+// rekeyQueuedNudgesAfterFailedBookkeeping).
+func deferQueuedNudgesToLaterPass(cityPath string, items []queuedNudge) error {
+	ids := queuedNudgeIDs(items)
+	if err := openNudgeQueue(cityPath, beads.NudgesStore{}).Repin.RepinClaims(ids, newQueuedNudgeBatchID()); err != nil {
+		return errors.Join(fmt.Errorf("moving queued items to a later delivery: %w", err), releaseQueuedNudgeClaims(cityPath, ids))
+	}
+	return releaseQueuedNudgeClaims(cityPath, ids)
+}
+
 func formatNudgeInjectOutput(items []queuedNudge) string {
 	var sb strings.Builder
 	sb.WriteString("<system-reminder>\n")
@@ -3179,9 +3277,13 @@ func ackQueuedNudgesWithOutcome(cityPath string, ids []string, outcome, reason, 
 // holds a permission request, and the next pass tries again. A permission
 // prompt the runtime refused to type into (#2892) stays up until someone
 // answers it, so claiming the nudges again on the very next pass would only
-// be refused again.
+// be refused again. A session still running a turn the runtime would not
+// interrupt (runtime.ErrSessionBusy) is deferred the same way: nothing was
+// typed, and the turn needs time to end.
 func queuedNudgeReleaseAfter(err error, now time.Time) (time.Time, bool) {
 	switch {
+	case errors.Is(err, runtime.ErrSessionBusy):
+		return now.Add(defaultQueuedNudgeRetryDelay), true
 	// Before ErrPendingInteraction: the session layer wraps this refusal in
 	// session.ErrPendingInteraction, which is that sentinel.
 	case errors.Is(err, runtime.ErrNudgeRefusedPendingInteraction):

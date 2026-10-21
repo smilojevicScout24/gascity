@@ -394,6 +394,12 @@ const (
 	RequestResultSessionSubmit  = "request.result.session.submit"
 	RequestResultRigCreate      = "request.result.rig.create"
 	RequestFailed               = "request.failed"
+	// RequestAccepted records that the API accepted an async session request
+	// (session create, message or submit) and returned its 202. It is the
+	// durable marker the request-outcome lookup reads to tell an accepted
+	// request from an unknown id; it is not an outcome. The terminal outcome
+	// is a request.result.* or request.failed event with the same request_id.
+	RequestAccepted = "request.accepted"
 
 	// RigProvisionProgress reports one provisioning step of a server-side
 	// rig add (clone, beads-init, packs, config, routes). Non-terminal;
@@ -532,6 +538,26 @@ const (
 	// D13).
 	OpsRecordingDegraded = "ops.recording_degraded"
 
+	// OpChanged fires when an operation-journal op row changes: proposed,
+	// accepted, taken, released, settled, canceled or closed. The payload is
+	// the op as its row reads after the change (DES-O1 D18), without the
+	// message text. The controller derives it once from the row's post-image
+	// in its cache-notification bridge, and journal rows record no bead.*
+	// event: a one-shot CLI's write to one journals nothing and rings the
+	// controller, which refreshes the row through its cache. A write no
+	// controller answers is announced only partly: a running controller's
+	// next reconcile announces a row it finds open and changed, but not the
+	// close of a row it did not hold, and a controller started later
+	// announces nothing for it. No writer may record one itself
+	// (IsJournalDerived). The row is
+	// authoritative: a consumer that reconnects reads a non-terminal op
+	// again with GET .../session/{id}/ops/{op}.
+	OpChanged = "op.changed"
+	// FactRecorded fires when an occurrence fact row is recorded: a session
+	// or turn started or ended, an interaction raised or resolved. It is
+	// derived like OpChanged, once per fact.
+	FactRecorded = "fact.recorded"
+
 	// BeadsBlockedRecomputed fires when gc start runs bd's full is_blocked
 	// recompute over one bd-backed scope as a one-shot upgrade step: the
 	// first start under a bd version the scope has not been repaired with.
@@ -567,6 +593,14 @@ const (
 	StorageBindingUncheckable   = "storage.binding.uncheckable"
 	StorageBindingNotConfigured = "storage.binding.not_configured"
 )
+
+// IsJournalDerived reports whether eventType is one the controller derives
+// from an operation-journal row's post-image (op.changed, fact.recorded). No
+// writer may author one, whatever its payload: a consumer renders it as the
+// row's state, and only the row can say what that is.
+func IsJournalDerived(eventType string) bool {
+	return eventType == OpChanged || eventType == FactRecorded
+}
 
 // KnownEventTypes lists every event-type constant this package defines.
 // The SSE projection uses this set (via a test) to verify that every
@@ -612,7 +646,7 @@ var KnownEventTypes = []string{
 	RequestResultCityCreate, RequestResultCityUnregister,
 	RequestResultSessionCreate, RequestResultSessionMessage,
 	RequestResultSessionSubmit, RequestResultRigCreate, RequestFailed,
-	RigProvisionProgress,
+	RequestAccepted, RigProvisionProgress,
 	CityCreated, CityUnregisterRequested,
 	OrderFired, OrderCompleted, OrderFailed, OrderSuppressed, OrderSkipped, OrderInapplicable,
 	ProviderSwapped, WorkerOperation, ProjectIdentityStamped, SupervisorFSPressureSkippedTick,
@@ -630,6 +664,7 @@ var KnownEventTypes = []string{
 	EmergencySignaled, EmergencyAcked,
 	BeadsConditionalWritesDegraded, BeadsBlockedRecomputed,
 	OpsRecordingDegraded,
+	OpChanged, FactRecorded,
 	StorageBindingConverged, StorageBindingGenesis,
 	StorageBindingUnconverged, StorageBindingUncheckable,
 	StorageBindingNotConfigured,
@@ -732,6 +767,13 @@ type TailProvider interface {
 // fakes, exec scripts) need not implement it.
 type InFlightProvider interface {
 	ListInFlight(filter Filter) ([]Event, error)
+}
+
+// InFlightContextProvider is an optional extension for providers whose
+// in-flight-aware read ([InFlightProvider]) can stop when ctx is done, so a
+// read whose caller has gone does not run to the end of a long history.
+type InFlightContextProvider interface {
+	ListInFlightContext(ctx context.Context, filter Filter) ([]Event, error)
 }
 
 // Watcher yields events one at a time. Created by [Provider.Watch].
