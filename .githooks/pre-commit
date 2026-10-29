@@ -131,7 +131,34 @@ if command -v npm >/dev/null 2>&1; then
     # Vitest suite, builds dist/, and smoke-runs the compiled SPA via
     # Vite preview so a bundle that builds but won't serve is caught
     # before CI.
-    make dashboard-check dashboard-smoke
+    dashboard_mode="${GC_PRECOMMIT_DASHBOARD:-auto}"
+    dashboard_why="GC_PRECOMMIT_DASHBOARD=npm"
+    case "$dashboard_mode" in
+    auto)
+      if ! command -v bazel >/dev/null 2>&1; then
+        dashboard_mode=npm
+        dashboard_why="bazel is not installed"
+      elif [ "$(uname -s)" = Darwin ]; then
+        dashboard_mode=npm
+        dashboard_why="the full Bazel dashboard gate includes Linux-only browser tooling"
+      else
+        dashboard_mode=bazel
+      fi
+      ;;
+    bazel | npm) ;;
+    *)
+      echo "pre-commit: GC_PRECOMMIT_DASHBOARD=$dashboard_mode must be auto, bazel, or npm" >&2
+      exit 2
+      ;;
+    esac
+    if [ "$dashboard_mode" = npm ]; then
+      echo "pre-commit: running make dashboard-check-npm dashboard-smoke: $dashboard_why." >&2
+      echo "pre-commit: CI still runs the full Bazel dashboard gate, including artifact drift and browser checks." >&2
+      echo "pre-commit: set GC_PRECOMMIT_DASHBOARD=bazel to require that gate locally." >&2
+      make dashboard-check-npm dashboard-smoke
+    else
+      make dashboard-check dashboard-smoke
+    fi
     git add internal/api/dashboardspa/dist
   fi
 else

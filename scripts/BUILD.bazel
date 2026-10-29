@@ -228,6 +228,13 @@ sh_test(
     data = ["sync-upstream.sh"],
 )
 
+sh_test(
+    name = "precommit_dashboard_test",
+    srcs = ["test-precommit-dashboard.sh"],
+    args = ["$(rootpath //:.githooks/pre-commit)"],
+    data = ["//:.githooks/pre-commit"],
+)
+
 # --- bazel_repo_srcs (managed by tools/bazel/repo_tree.py) ---
 
 filegroup(

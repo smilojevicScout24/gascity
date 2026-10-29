@@ -62,3 +62,10 @@ hooks; it derives the soname list from a single ICU-major constant, and
 `TestBazelLocalRuntimePinMatchesProbe` fails when that constant, the
 `MODULE.bazel` pin and `engdocs/bazel-quickstart.md` disagree. Only `auto`
 probes: an explicit mode is never replaced.
+
+The dashboard side selects `make dashboard-check-npm dashboard-smoke` on
+macOS and when Bazel is unavailable, and announces that CI still enforces the
+full Bazel gate. `GC_PRECOMMIT_DASHBOARD=auto|bazel|npm` selects the engine;
+explicit modes propagate failures without falling back. The shell fixture
+`test-precommit-dashboard.sh` checks selection and failure propagation through
+the real hook.

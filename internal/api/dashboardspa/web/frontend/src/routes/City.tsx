@@ -3,7 +3,7 @@
 // flourishes (mail envelopes, dog errands, merge sparks).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { WorkflowCity } from '../city/WorkflowCity';
 import { hasWorkflowAgents, workflowRole } from '../city/workflow';
 import { PageHeader } from '../components/PageHeader';

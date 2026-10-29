@@ -1,5 +1,5 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -29,6 +29,8 @@ vi.mock('./supervisor/client', () => ({
     // missing method.
     listSessions: vi.fn(async () => ({ items: [], total: 0 })),
     listBeads: vi.fn(async () => ({ items: [], total: 0 })),
+    listAgents: vi.fn(async () => ({ items: [], total: 0 })),
+    listRigs: vi.fn(async () => ({ items: [], total: 0 })),
   }),
 }));
 
@@ -42,16 +44,18 @@ vi.mock('./routes/CockpitHome', () => ({
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="pathname">{location.pathname}</output>;
+  return (
+    <>
+      <output data-testid="pathname">{location.pathname}</output>
+      <output data-testid="search">{location.search}</output>
+    </>
+  );
 }
 
 function renderAt(path: string) {
   return render(
     <ThemeProvider>
-      <MemoryRouter
-        initialEntries={[path]}
-        future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
-      >
+      <MemoryRouter initialEntries={[path]}>
         <App />
         <LocationProbe />
       </MemoryRouter>
@@ -95,6 +99,21 @@ describe('App routes', () => {
 
     expect(await screen.findByRole('heading', { name: 'Runs route' })).toBeTruthy();
     expect(screen.getByTestId('pathname').textContent).toBe('/runs');
+  });
+
+  it('/map switches city presentations through the app router and preserves other query parameters', async () => {
+    renderAt('/map?style=gascity&keep=1');
+
+    const presentation = await screen.findByRole('combobox', { name: 'City presentation' });
+    expect((presentation as HTMLSelectElement).value).toBe('gascity');
+    expect(screen.getByText('In review')).toBeTruthy();
+
+    fireEvent.change(presentation, { target: { value: 'gastown' } });
+    await waitFor(() => {
+      expect(screen.getByTestId('search').textContent).toBe('?style=gastown&keep=1');
+    });
+    expect(screen.getByText('Merge queue')).toBeTruthy();
+    expect(screen.getByTestId('pathname').textContent).toBe('/map');
   });
 
   it('/ renders the live cockpit fallback', async () => {
