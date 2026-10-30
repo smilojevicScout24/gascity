@@ -40,6 +40,15 @@ The remedy names the ref because a plain `git fetch <remote>` can skip the tip
 from a push URL. `githooks_pre_push_stdin_test.go` covers large diffs,
 unfetched remote tips, credentialed push URLs and unreadable comparisons.
 
+## Dashboard pre-commit checks
+
+The dashboard side selects `make dashboard-check-npm dashboard-smoke` on
+macOS and when Bazel is unavailable, and announces that CI still enforces the
+full Bazel gate. `GC_PRECOMMIT_DASHBOARD=auto|bazel|npm` selects the engine;
+explicit modes propagate failures without falling back. The shell fixture
+`test-precommit-dashboard.sh` checks selection and failure propagation through
+the real hook.
+
 ## Make targets run Bazel; `-go` twins are the escape hatch
 
 `make test`, `check`, `check-all`, `check-docs`, `test-acceptance` and
@@ -62,10 +71,3 @@ hooks; it derives the soname list from a single ICU-major constant, and
 `TestBazelLocalRuntimePinMatchesProbe` fails when that constant, the
 `MODULE.bazel` pin and `engdocs/bazel-quickstart.md` disagree. Only `auto`
 probes: an explicit mode is never replaced.
-
-The dashboard side selects `make dashboard-check-npm dashboard-smoke` on
-macOS and when Bazel is unavailable, and announces that CI still enforces the
-full Bazel gate. `GC_PRECOMMIT_DASHBOARD=auto|bazel|npm` selects the engine;
-explicit modes propagate failures without falling back. The shell fixture
-`test-precommit-dashboard.sh` checks selection and failure propagation through
-the real hook.
